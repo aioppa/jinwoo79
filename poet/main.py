@@ -3,43 +3,56 @@ import streamlit as st
 from dotenv import load_dotenv
 import html  
 
-def load_openai_key():
-    load_dotenv()  # .env도 허용하지만 Cloud에선 st.secrets가 우선
-    key = None
 
-    # 1) secrets 우선 사용
+def load_secrets_env(name: str):
+    # secrets → env(.env 포함) 순서로 조회
     try:
-        if "OPENAI_API_KEY" in st.secrets:
-            key = str(st.secrets["OPENAI_API_KEY"])
+        if name in st.secrets:
+            return str(st.secrets[name])
     except Exception:
         pass
+    return os.getenv(name)
 
-    # 2) 없으면 환경변수(.env 포함)
-    if not key:
-        key = os.getenv("OPENAI_API_KEY")
+def clean_key(s: str | None) -> str | None:
+    if not s: return None
+    s = s.replace("\u200b", "").replace("\uFEFF", "")  # 제로폭문자 제거
+    s = s.strip()
+    s = re.sub(r"\s+", "", s)  # 모든 공백/개행 제거
+    return s
 
-    # 문자열 정리: 공백/개행/제로폭 제거
-    if key:
-        key = key.strip().replace("\u200b", "").replace("\uFEFF", "")
-        key = re.sub(r"\s+", "", key)
-
-    return key
-
-API_KEY = load_openai_key()
-
-# 키 유효성 간단 점검
-def validate(k: str):
+def validate_key(k: str | None):
     if not k: return False, "키 없음"
-    if not k.startswith("sk-"): return False, "접두사(sk-) 아님"
-    if len(k) < 20: return False, "너무 짧음"
+    if not (k.startswith("sk-")):  # sk- / sk-proj- 모두 sk-로 시작
+        return False, "접두사(sk-) 아님"
+    if len(k) < 20:
+        return False, "길이 비정상"
     return True, "ok"
 
-ok, why = validate(API_KEY)
-st.sidebar.info(f"🔑 key src: {'secrets' if 'OPENAI_API_KEY' in st.secrets else 'env'} / prefix: {(API_KEY[:6] if API_KEY else 'None')}…{(API_KEY[-4:] if API_KEY else '')} / len: {(len(API_KEY) if API_KEY else 0)}")
+load_dotenv()  # 로컬 .env 허용
 
-if not ok:
-    st.error("OPENAI_API_KEY 설정 오류: " + why + "\nSecrets에 정확히 한 줄로 저장 후 Rerun 하세요.")
+API_KEY = clean_key(load_secrets_env("OPENAI_API_KEY"))
+OK, WHY = validate_key(API_KEY)
+
+# 선택: 프로젝트/조직 값도 주입(있을 때만)
+OPENAI_PROJECT_ID = clean_key(load_secrets_env("OPENAI_PROJECT_ID"))
+OPENAI_ORG_ID     = clean_key(load_secrets_env("OPENAI_ORG_ID"))
+
+# 환경변수 동기화(일부 라이브러리는 env를 참조)
+if API_KEY: os.environ["OPENAI_API_KEY"] = API_KEY
+if OPENAI_PROJECT_ID: os.environ["OPENAI_PROJECT_ID"] = OPENAI_PROJECT_ID
+if OPENAI_ORG_ID:     os.environ["OPENAI_ORG_ID"]     = OPENAI_ORG_ID
+
+# 사이드바 진단(안심표시)
+src = "secrets" if ("OPENAI_API_KEY" in getattr(st, "secrets", {})) else "env"
+st.sidebar.info(
+    f"🔑 src:{src} / prefix:{(API_KEY[:6] if API_KEY else 'None')}…{(API_KEY[-4:] if API_KEY else '')} / len:{(len(API_KEY) if API_KEY else 0)}"
+)
+
+if not OK:
+    st.error("OPENAI_API_KEY 설정 오류: " + WHY + "\nSecrets(Cloud) 또는 .env(로컬)에 정확히 한 줄로 저장 후 Rerun 하세요.")
     st.stop()
+
+
 
 # 일부 라이브러리는 env를 자동 사용하므로 동기화
 os.environ["OPENAI_API_KEY"] = API_KEY
