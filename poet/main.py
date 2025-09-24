@@ -1,6 +1,7 @@
-
-import os, re, streamlit as st
+import os, re, time, base64
+import streamlit as st
 from dotenv import load_dotenv
+import html  
 
 def load_openai_key():
     load_dotenv()  # .env도 허용하지만 Cloud에선 st.secrets가 우선
