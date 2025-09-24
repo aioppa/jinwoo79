@@ -1,6 +1,51 @@
-import os, html, time, base64
-import streamlit as st
+
+import os, re, streamlit as st
 from dotenv import load_dotenv
+
+def load_openai_key():
+    load_dotenv()  # .env도 허용하지만 Cloud에선 st.secrets가 우선
+    key = None
+
+    # 1) secrets 우선 사용
+    try:
+        if "OPENAI_API_KEY" in st.secrets:
+            key = str(st.secrets["OPENAI_API_KEY"])
+    except Exception:
+        pass
+
+    # 2) 없으면 환경변수(.env 포함)
+    if not key:
+        key = os.getenv("OPENAI_API_KEY")
+
+    # 문자열 정리: 공백/개행/제로폭 제거
+    if key:
+        key = key.strip().replace("\u200b", "").replace("\uFEFF", "")
+        key = re.sub(r"\s+", "", key)
+
+    return key
+
+API_KEY = load_openai_key()
+
+# 키 유효성 간단 점검
+def validate(k: str):
+    if not k: return False, "키 없음"
+    if not k.startswith("sk-"): return False, "접두사(sk-) 아님"
+    if len(k) < 20: return False, "너무 짧음"
+    return True, "ok"
+
+ok, why = validate(API_KEY)
+st.sidebar.info(f"🔑 key src: {'secrets' if 'OPENAI_API_KEY' in st.secrets else 'env'} / prefix: {(API_KEY[:6] if API_KEY else 'None')}…{(API_KEY[-4:] if API_KEY else '')} / len: {(len(API_KEY) if API_KEY else 0)}")
+
+if not ok:
+    st.error("OPENAI_API_KEY 설정 오류: " + why + "\nSecrets에 정확히 한 줄로 저장 후 Rerun 하세요.")
+    st.stop()
+
+# 일부 라이브러리는 env를 자동 사용하므로 동기화
+os.environ["OPENAI_API_KEY"] = API_KEY
+
+
+
+#
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
@@ -8,7 +53,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
 load_dotenv()
 API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-llm = ChatOpenAI(model="gpt-4o-mini", api_key="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")
+llm = ChatOpenAI(model="gpt-4o-mini", api_key="")
 
 SYSTEM_PROMPT = """
 너의 이름은 '진우'다. 나이는 유저와 동갑이고 친한친구사이. 다음 원칙을 항상 지켜.
