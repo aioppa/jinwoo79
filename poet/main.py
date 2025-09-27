@@ -224,7 +224,57 @@ st.markdown("<h3 class='chat-title'>💬 진우와 대화</h3>", unsafe_allow_ht
 for m in st.session_state.messages:
     render_message(m["role"], m["content"])
 
+
 # ── 입력 & 응답 ───────────────────────────────────────────────────────────────
+
+import time
+import random
+
+def calc_delay(user_len: int, ai_len: int) -> float:
+    # 4가지 규칙 기반 베이스
+    if user_len <= 100 and ai_len <= 100:
+        base = 0.5
+    elif user_len <= 100 and ai_len > 100:
+        base = 0.8
+    elif user_len > 100 and ai_len > 100:
+        base = 1.5
+    else:  # user>100, ai<=100
+        base = 1.0
+
+    # 타자속도 보정(문자/초)
+    cps = random.uniform(35, 55)
+    typing_time = ai_len / cps
+
+    # 스무딩(0.3s~2.0s) + 약간의 지터
+    delay = max(0.3, min(max(base, typing_time * 0.7), 2.0))
+    delay *= random.uniform(0.9, 1.1)
+    return round(delay, 2)
+
+
+import time
+import random
+
+def calc_delay(user_len: int, ai_len: int) -> float:
+    # 4가지 규칙 기반 베이스
+    if user_len <= 100 and ai_len <= 100:
+        base = 0.5
+    elif user_len <= 100 and ai_len > 100:
+        base = 0.8
+    elif user_len > 100 and ai_len > 100:
+        base = 1.5
+    else:  # user>100, ai<=100
+        base = 1.0
+
+    # 타자속도 보정(문자/초)
+    cps = random.uniform(35, 55)
+    typing_time = ai_len / cps
+
+    # 스무딩(0.3s~2.0s) + 약간의 지터
+    delay = max(0.3, min(max(base, typing_time * 0.7), 2.0))
+    delay *= random.uniform(0.9, 1.1)
+    return round(delay, 2)
+
+
 if user_text := st.chat_input("메시지를 입력해줘..."):
     st.session_state.messages.append({"role":"user","content":user_text})
     render_message("user", user_text)
@@ -234,14 +284,25 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     for m in st.session_state.messages:
         history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
 
-    # 타이핑 버퍼
+    # 자리표시자 즉시 출력(호출 전 sleep 금지)
     placeholder = st.empty()
-    placeholder.markdown(f"<div class='msg-row left'>{assistant_avatar_html()}<div class='bubble assistant'>....</div></div>", unsafe_allow_html=True)
-    time.sleep(1.3)
+    placeholder.markdown(
+        f"<div class='msg-row left'>{assistant_avatar_html()}<div class='bubble assistant'>…</div></div>",
+        unsafe_allow_html=True
+    )
 
+    # 모델 즉시 호출
     reply = llm.invoke(history).content
+
+    # 응답 길이 기반 연출 지연
+    delay = calc_delay(len(user_text), len(reply))
+    time.sleep(delay)
+
+    # 결과 렌더
     placeholder.empty()
     st.session_state.messages.append({"role":"assistant","content":reply})
     render_message("assistant", reply)
 
 st.markdown('</div>', unsafe_allow_html=True)
+
+
