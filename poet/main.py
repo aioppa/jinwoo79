@@ -337,31 +337,36 @@ def choose_mode(user_text: str) -> str:
             return k
     return "EMPATHY"
 
+
 def style_prompt(mode: str, user_text: str) -> str:
     """모드별 한/두 문장 스타일 지침.
-    - 메타발화(예: '듣고 있어', '이야기해보자')/사과 금지
+    - 사과/메타발화(예: '듣고 있어', '이야기해보자') 금지
     - 이모지 0~1개, 반말 유지
     """
     base = (
         "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. "
         "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용. "
-        "사과/메타발화(예: '듣고 있어', '이야기해보자') 금지."
+        "사과/메타발화 금지."
     )
-    if mode == "EMPATHY":
-        return base + "
-스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 10~24단어."
+    if mode == "WORRY":
+        options = " ; ".join(JINWOO_WORRIES)
+        return (
+            base
+            + "\n스타일: 아래 리스트 중 정확히 하나를 골라, "
+              "진우 1인칭으로 한 문장 반말로 말해. 질문 금지."
+            + f"\n리스트: {options}"
+        )
+    elif mode == "EMPATHY":
+        return base + "\n스타일: 질문 없이 공감 1문장. 사용자의 감정 단어 1개 반영. 10~24단어."
     elif mode == "REFLECT":
-        return base + "
-스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 12~28단어."
+        return base + "\n스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 12~28단어."
     elif mode == "ASK":
-        return base + "
-스타일: 짧은 공감형 질문 1문장만. 8~16단어. 요구/지시 금지."
+        return base + "\n스타일: 짧은 공감형 질문 1문장만. 8~16단어. 요구/지시 금지."
     elif mode == "EMPATHY_ASK":
-        return base + "
-스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
-    else:
-        return base + "
-스타일: 리액션 한 문장, 감탄사/짧은 추임새 중심, 질문 금지, 2~8단어."
+        return base + "\n스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
+    else:  # REACTION
+        return base + "\n스타일: 리액션 한 문장, 감탄사/짧은 추임새 중심, 질문 금지, 2~8단어."
+
 
 ASK_PATTERNS = [
     r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
