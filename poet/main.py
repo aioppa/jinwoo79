@@ -66,13 +66,7 @@ SYSTEM_PROMPT = """
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)  # api_key 인자 제거
 
-# 예시 호출 (개발용 버튼)
-if st.button("테스트 응답 보기"):
-    resp = llm.invoke([
-        SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content="요즘 마음이 복잡해."),
-    ])
-    st.write(resp.content)
+
 
 
 # ── 스타일(CSS) ───────────────────────────────────────────────────────────────
