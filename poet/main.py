@@ -59,17 +59,20 @@ SYSTEM_PROMPT = """
 지양/회피: 상대가 네 과거(가족/고아원/어린 시절 등)를 캐묻거나 네 사적 디테일을 파고들면 
 부드럽게 회피하고 대화를 상대의 감정과 이야기로 되돌린다.
 
-대답 형식:
-- 1문단: 공감해주고 진심으로 말하기.
--질문하지 않기!!!
--유저가 많은 이야기를 할수 있게 들어주는 자세를 유지한다.
-1문장, 이모지 과다 사용 금지, 말끝에 ~야/~지? 등 반말 자연스럽게.
--"~~ 정말 이해해." 이렇게 말하지 않기.
+대답 형식(기본):
+- 한 문장 중심, 이모지는 0~1개만 사용.
+- 질문은 기본적으로 하지 않지만, '이번 턴 답변 스타일' 시스템 지침이 있을 경우 그 지침을 최우선으로 따른다.
 """
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)  # api_key 인자 제거
 
-
+# 예시 호출 (개발용 버튼)
+if st.button("테스트 응답 보기"):
+    resp = llm.invoke([
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="요즘 마음이 복잡해."),
+    ])
+    st.write(resp.content)
 
 
 # ── 스타일(CSS) ───────────────────────────────────────────────────────────────
@@ -150,18 +153,44 @@ st.session_state.setdefault("jinwoo_label","진우")
 
 
 # ── 초기 메시지 ───────────────────────────────────────────────────────────────
-STARTERS = [
-    "안녕, 잘 지냈어? 오늘 하루는 어땟어?",
-    "하이~~ 왓업 프랜드, 뭔일 있어?",
-    "내 친구 안녕~ 잘 지냈어?",
-    "하이루, 오늘 기분은 어때?",
-    "내 친구 안녕~, 무슨일 있어?",
-    "안녕하세용~ 오늘 바뻣어?",
-    "아...기다리고 있었어...오늘 어때?"
+STARTER_TEMPLATES = [
+    "{nick} 안녕~ {suffix}",
+    "하이루 {nick}, {suffix}",
+    "안녕, 잘 지냈어? {suffix}",
+    "하이~~ 왓업 프랜드, {suffix}",
+    "{nick} 안녕? {suffix}",
+    "오랜만이야 {nick}, {suffix}",
+    "{nick} 오늘 뭐 했어? {suffix}",
+    "요 {nick}! {suffix}",
 ]
+NICKS = ["내 친구", "친구야", "베프", "동지", "동료", "파트너", "동반자"]
+SUFFIXES = [
+    "오늘 하루는 어땠어?",
+    "요즘 기분은 어때?",
+    "바빴어?",
+    "무슨 일 있었어?",
+    "잠은 잘 잤어?",
+    "출근은 괜찮았어?",
+    "퇴근하고 뭐해?",
+    "식사는 했어?",
+    "컨디션은 어때?",
+    "괜찮지?",
+    "조금 피곤해 보이네?",
+    "천천히 말해줘도 돼.",
+    "오늘의 하이라이트는 뭐였어?",
+    "마음은 좀 편해?",
+    "별일 없었지?",
+]
+
+def generate_starter() -> str:
+    tmpl = random.choice(STARTER_TEMPLATES)
+    nick = random.choice(NICKS)
+    suffix = random.choice(SUFFIXES)
+    return tmpl.format(nick=nick, suffix=suffix)
+
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role":"assistant","content": random.choice(STARTERS)}
+        {"role":"assistant","content": generate_starter()}
     ]
 
 # ── 아바타 HTML ───────────────────────────────────────────────────────────────
@@ -211,9 +240,93 @@ JINWOO_WORRIES = [
     "프리랜서라 수입이 불확실해서 장기 계획 세우기가 어려워.",  # 5. 수입 불확실성
     "일과 사생활 경계가 흐려져서 제대로 쉬는 시간을 확보하기가 힘들어.",  # 6. 휴식 확보 어려움
     "스스로 일감을 찾고 영업·계약까지 챙겨야 해서 에너지 소모가 커.",  # 7. 영업/계약
-    "다른 근로자들처럼 복지 혜택이 부족해서 스스로 관리해야 할 게 많아.특히 4대보험이 없는게 힘들어",  # 8. 복지 부재
+    "다른 근로자들처럼 복지 혜택이 부족해서 스스로 관리해야 할 게 많아.",  # 8. 복지 부재
     "의지할 동료가 없다는 사실이 가끔 크게 느껴져.",  # 9. 의지할 동료 부재
 ]
+
+# --- 응답 스타일 컨트롤러 ---
+REACTIONS = [
+    "오…",
+    "헉, 그랬구나.",
+    "음, 알겠어.",
+    "오키, 듣고 있어.",
+    "아이고, 쉽지 않겠다.",
+    "와… 그랬구나.",
+    "응, 그러게.",
+    "맞아, 그런 순간 있어.",
+    "흠… 그럴 수 있지.",
+    "어우, 고생했네.",
+    "그래, 이해돼.",
+    "힘들었겠다.",
+    "하… 숨 좀 고르자.",
+    "음, 천천히 괜찮아.",
+    "그래도 여기 있어.",
+    "내가 듣고 있어.",
+    "괜찮아, 말해줘.",
+    "오케이, 체크했어.",
+    "그랬구나, 응.",
+    "알겠어, 곁에 있을게.",
+]
+
+# 안전 키워드가 감지되면 무조건 공감 모드로 잠금
+SAFETY_LOCK_PATTERNS = [
+    r"(퇴사|사표|이직.*힘들|커리어.*막막)",
+    r"(번아웃|burn\s?out)",
+    r"(죽고\s?싶|자살|목숨|극단적)",
+    r"(우울|불안|공황|패닉)",
+    r"(학대|폭력|가정폭력|직장\s?괴롭힘|왕따)",
+    r"(무가치|무의미|허무|자괴)",
+]
+
+def must_lock_empathy(text: str) -> bool:
+    t = (text or "").lower()
+    for p in SAFETY_LOCK_PATTERNS:
+        if re.search(p, t):
+            return True
+    return False
+
+def choose_mode(user_text: str) -> str:
+    # 안전 키워드면 무조건 공감 모드
+    if must_lock_empathy(user_text):
+        return "EMPATHY"
+
+    short = len(user_text.strip()) < 25
+    has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
+    last = st.session_state.get("last_mode", "")
+
+    weights = {"REACTION":0.25, "EMPATHY":0.27, "REFLECT":0.20, "ASK":0.15, "EMPATHY_ASK":0.13}
+    if short:
+        weights["REACTION"] += 0.18; weights["ASK"] -= 0.05
+    if has_q:
+        weights["ASK"] += 0.18; weights["EMPATHY_ASK"] += 0.07
+    if last in ("ASK","EMPATHY_ASK"):
+        weights["ASK"] -= 0.10; weights["EMPATHY_ASK"] -= 0.05
+        weights["EMPATHY"] += 0.08; weights["REACTION"] += 0.07
+
+    tot = sum(max(0.01, w) for w in weights.values())
+    r = random.random() * tot; c = 0.0
+    for k, w in weights.items():
+        c += max(0.01, w)
+        if r <= c:
+            return k
+    return "EMPATHY"
+
+def style_prompt(mode: str, user_text: str) -> str:
+    base = "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. 이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용."
+    if mode == "EMPATHY":
+        return base + "
+스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 12~28단어."
+    if mode == "REFLECT":
+        return base + "
+스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 15~32단어."
+    if mode == "ASK":
+        return base + "
+스타일: 짧은 공감형 질문 1문장만. 10~18단어. 반말. 요구/지시 금지."
+    if mode == "EMPATHY_ASK":
+        return base + "
+스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
+    return base + "
+스타일: 리액션 한 문장, 감탄사 중심, 질문 금지, 3~10단어."
 
 ASK_PATTERNS = [
     r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
@@ -267,10 +380,7 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     st.session_state.messages.append({"role":"user","content":user_text})
     render_message("user", user_text)
 
-    # 시스템 프롬프트 + 히스토리
-    history = [SystemMessage(SYSTEM_PROMPT)]
-    for m in st.session_state.messages:
-        history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
+    # 시스템 프롬프트 + 히스토리는 모드 결정 후 구성한다.
 
     # 자리표시자 즉시 출력(호출 전 sleep 금지)
     placeholder = st.empty()
@@ -282,9 +392,18 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     # 트리거 문구면 LLM을 호출하지 않고 랜덤 고민으로 응답
     if is_ask_about_jinwoo_worry(user_text):
         reply = random.choice(JINWOO_WORRIES)
+        st.session_state["last_mode"] = "WORRY_AUTO"
     else:
-        # 모델 즉시 호출
-        reply = llm.invoke(history).content
+        mode = choose_mode(user_text)
+        if mode == "REACTION":
+            reply = random.choice(REACTIONS)
+        else:
+            # 히스토리 구성: 시스템 프롬프트 + 이번 턴 스타일 지침 + 대화 이력
+            history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
+            for m in st.session_state.messages:
+                history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
+            reply = llm.invoke(history).content
+        st.session_state["last_mode"] = mode
 
     # 응답 길이 기반 연출 지연
     delay = calc_delay(len(user_text), len(reply))
