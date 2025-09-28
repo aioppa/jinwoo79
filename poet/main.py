@@ -269,6 +269,7 @@ REACTIONS = [
 ]
 
 # 안전 키워드가 감지되면 무조건 공감 모드로 잠금
+# 2) 안전 잠금 패턴(정규식): 공백표현은 \s를 사용
 SAFETY_LOCK_PATTERNS = [
     r"(퇴사|사표|이직.*힘들|커리어.*막막)",
     r"(번아웃|burn\s?out)",
@@ -277,13 +278,13 @@ SAFETY_LOCK_PATTERNS = [
     r"(학대|폭력|가정폭력|직장\s?괴롭힘|왕따)",
     r"(무가치|무의미|허무|자괴)",
 ]
-
 def must_lock_empathy(text: str) -> bool:
     t = (text or "").lower()
     for p in SAFETY_LOCK_PATTERNS:
         if re.search(p, t):
             return True
     return False
+
 
 def choose_mode(user_text: str) -> str:
     # 안전 키워드면 무조건 공감 모드
@@ -311,22 +312,23 @@ def choose_mode(user_text: str) -> str:
             return k
     return "EMPATHY"
 
+# 1) 답변 스타일 지침 (문자열 안전 결합)
 def style_prompt(mode: str, user_text: str) -> str:
-    base = "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. 이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용."
+    base = (
+        "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. "
+        "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용."
+    )
     if mode == "EMPATHY":
-        return base + "
-스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 12~28단어."
-    if mode == "REFLECT":
-        return base + "
-스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 15~32단어."
-    if mode == "ASK":
-        return base + "
-스타일: 짧은 공감형 질문 1문장만. 10~18단어. 반말. 요구/지시 금지."
-    if mode == "EMPATHY_ASK":
-        return base + "
-스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
-    return base + "
-스타일: 리액션 한 문장, 감탄사 중심, 질문 금지, 3~10단어."
+        return base + "\n스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 12~28단어."
+    elif mode == "REFLECT":
+        return base + "\n스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 15~32단어."
+    elif mode == "ASK":
+        return base + "\n스타일: 짧은 공감형 질문 1문장만. 10~18단어. 반말. 요구/지시 금지."
+    elif mode == "EMPATHY_ASK":
+        return base + "\n스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
+    else:
+        return base + "\n스타일: 리액션 한 문장, 감탄사 중심, 질문 금지, 3~10단어."
+
 
 ASK_PATTERNS = [
     r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
