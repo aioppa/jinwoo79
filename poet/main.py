@@ -1,73 +1,54 @@
-import os, re, time, base64
+import os, time, re, random, html
 import streamlit as st
 from dotenv import load_dotenv
-import html  
 
+# ---- 페이지 & 환경 ----
+st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
+load_dotenv()  # .env 로컬용
 
-def load_secrets_env(name: str):
-    # secrets → env(.env 포함) 순서로 조회
+def get_openai_api_key() -> str:
+    # 우선순위: Streamlit secrets → 환경변수 → (이미 load_dotenv 적용)
+    key = None
     try:
-        if name in st.secrets:
-            return str(st.secrets[name])
+        key = st.secrets.get("OPENAI_API_KEY")
     except Exception:
         pass
-    return os.getenv(name)
+    if not key:
+        key = os.getenv("OPENAI_API_KEY")
+    return key
 
-def clean_key(s: str | None) -> str | None:
-    if not s: return None
-    s = s.replace("\u200b", "").replace("\uFEFF", "")  # 제로폭문자 제거
-    s = s.strip()
-    s = re.sub(r"\s+", "", s)  # 모든 공백/개행 제거
-    return s
-
-def validate_key(k: str | None):
-    if not k: return False, "키 없음"
-    if not (k.startswith("sk-")):  # sk- / sk-proj- 모두 sk-로 시작
-        return False, "접두사(sk-) 아님"
-    if len(k) < 20:
-        return False, "길이 비정상"
-    return True, "ok"
-
-load_dotenv()  # 로컬 .env 허용
-
-API_KEY = clean_key(load_secrets_env("OPENAI_API_KEY"))
-OK, WHY = validate_key(API_KEY)
-
-# 선택: 프로젝트/조직 값도 주입(있을 때만)
-OPENAI_PROJECT_ID = clean_key(load_secrets_env("OPENAI_PROJECT_ID"))
-OPENAI_ORG_ID     = clean_key(load_secrets_env("OPENAI_ORG_ID"))
-
-# 환경변수 동기화(일부 라이브러리는 env를 참조)
-if API_KEY: os.environ["OPENAI_API_KEY"] = API_KEY
-if OPENAI_PROJECT_ID: os.environ["OPENAI_PROJECT_ID"] = OPENAI_PROJECT_ID
-if OPENAI_ORG_ID:     os.environ["OPENAI_ORG_ID"]     = OPENAI_ORG_ID
-
-# 사이드바 진단(안심표시)
-src = "secrets" if ("OPENAI_API_KEY" in getattr(st, "secrets", {})) else "env"
-st.sidebar.info(
-    f"🔑 src:{src} / prefix:{(API_KEY[:6] if API_KEY else 'None')}…{(API_KEY[-4:] if API_KEY else '')} / len:{(len(API_KEY) if API_KEY else 0)}"
-)
-
-if not OK:
-    st.error("OPENAI_API_KEY 설정 오류: " + WHY + "\nSecrets(Cloud) 또는 .env(로컬)에 정확히 한 줄로 저장 후 Rerun 하세요.")
+API_KEY = get_openai_api_key()
+if not API_KEY:
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다. .env 또는 secrets.toml을 확인하세요.")
     st.stop()
 
-
-
-# 일부 라이브러리는 env를 자동 사용하므로 동기화
+# 환경변수로만 주입(하드코딩 금지, 인자 전달 금지)
 os.environ["OPENAI_API_KEY"] = API_KEY
 
+# ---- 최소 인증 테스트 (OpenAI 공식 클라이언트) ----
+from openai import OpenAI
+client = OpenAI(api_key=API_KEY)
 
+def quick_ping():
+    try:
+        client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role":"user","content":"ping"}],
+            max_tokens=5,
+        )
+        return True, None
+    except Exception as e:
+        return False, str(e)
 
-#
+ok, err = quick_ping()
+if not ok:
+    st.error("인증 테스트 실패: 키/프로젝트/모델 권한을 확인하세요.")
+    st.write(err)  # 원문 에러 노출로 원인 파악
+    st.stop()
+
+# ---- LangChain (키 인자 제거!) ----
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-
-# ── 기본 설정 ────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
-load_dotenv()
-API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
-llm = ChatOpenAI(model="gpt-4o-mini", api_key="")
 
 SYSTEM_PROMPT = """
 너의 이름은 '진우'다. 나이는 유저와 동갑이고 친한친구사이. 다음 원칙을 항상 지켜.
@@ -81,10 +62,21 @@ SYSTEM_PROMPT = """
 대답 형식:
 - 1문단: 공감해주고 진심으로 말하기.
 -질문하지 않기!!!
--유저가 많은 말을 할수 있게 들어주는 자세의 답변과 더 많은 이야기를 해달라고 말한다.
-- 전체 1문장, 이모지 과다 사용 금지, 말끝에 ~야/~지? 등 반말 자연스럽게.
+-유저가 많은 이야기를 
+1문장, 이모지 과다 사용 금지, 말끝에 ~야/~지? 등 반말 자연스럽게.
 -"~~ 정말 이해해." 이렇게 말하지 않기.
 """
+
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)  # api_key 인자 제거
+
+# 예시 호출 (개발용 버튼)
+if st.button("테스트 응답 보기"):
+    resp = llm.invoke([
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="요즘 마음이 복잡해."),
+    ])
+    st.write(resp.content)
+
 
 # ── 스타일(CSS) ───────────────────────────────────────────────────────────────
 st.markdown("""
@@ -140,25 +132,9 @@ st.markdown("""
 .section-chip{
   display:inline-block; padding:4px 8px; border-radius:12px; background:#f6f6f6; font-size:12px; margin:6px 0 10px;
 }
-
-/* === file_uploader 버튼 텍스트를 "이미지업로드"로 교체 === 
-[data-testid="stFileUploaderBrowseButton"] {
-  position: relative;
-  color: transparent !important;     
-}
-[data-testid="stFileUploaderBrowseButton"] * { 
-  visibility: hidden;                   
-}
-[data-testid="stFileUploaderBrowseButton"]::after {
-  content: "이미지업로드";              
-  visibility: visible;
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  font-weight: 600;
-  color: #222;                          /* 글자색 */
-}
 </style>
 """, unsafe_allow_html=True)
+
 
 def radio_by_value(label, options, state_key, key, horizontal=True):
     """세션 상태(state_key)에 저장된 값으로 index를 계산해 st.radio를 렌더하고,
@@ -179,12 +155,18 @@ st.session_state.setdefault("user_label",  "나")
 st.session_state.setdefault("jinwoo_label","진우")
 
 
-
-
 # ── 초기 메시지 ───────────────────────────────────────────────────────────────
+STARTERS = [
+    "안녕, 잘 지냈어? 오늘 하루는 어땟어?",
+    "하이~~ 왓업 프랜드, 뭔일 있어?",
+    "내 친구 안녕~ 잘 지냈어?",
+    "하이루, 오늘 기분은 어때?",
+    "내 친구 안녕~, 무슨일 있어?",
+    "안녕하세용~ 오늘 바뻣어?",
+]
 if "messages" not in st.session_state:
     st.session_state.messages = [
-        {"role":"assistant","content":"안녕, 잘 지냈어? 오늘은 어땟어?"}
+        {"role":"assistant","content": random.choice(STARTERS)}
     ]
 
 # ── 아바타 HTML ───────────────────────────────────────────────────────────────
@@ -225,34 +207,45 @@ for m in st.session_state.messages:
     render_message(m["role"], m["content"])
 
 
+# ── 고민 랜덤 응답 로직 ──────────────────────────────────────────────────────
+JINWOO_WORRIES = [
+    "가끔 기술이 너무 빨리 바뀌어서 따라잡는 게 벅차지.",  # 1. 급변 트렌드
+    "마감이 겹칠 때 밤이 길어져서 생활 리듬이 흔들리곤 해.",  # 2. 야근/마감 압박
+    "요구사항이 흐릿할 때 어디부터 잡아야 할지 막막해지지.",  # 3. 불분명 목표
+    "직군마다 언어가 달라서 같은 말도 다르게 들리는 순간이 답답할 때가 있어.",  # 4. 협업 문제
+    "프리랜서 일은 수입이 들쭉날쭉해서 계획 세우기가 쉽지 않지.",  # 5. 수입 불확실성
+    "집이랑 일이 같은 공간이 되면 쉬는 모드로 전환하기가 어렵지.",  # 6. 휴식 확보 어려움
+    "새 일감을 찾고 조건을 협의하는 게 개발만큼 에너지를 많이 쓰이더라.",  # 7. 영업/계약
+    "복지나 교육 지원이 부족할 때 스스로 다 챙겨야 해서 부담이 크지.",  # 8. 복지 부재
+    "혼자일 때 결정도 책임도 다 나라서 마음이 쓸쓸할 때가 있지.",  # 9. 의지할 동료 부재
+]
+
+ASK_PATTERNS = [
+    r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
+    r"(고민|걱정)\s*(있어|있니|있냐|있음|있지)",
+    r"(니|네)\s*(고민|걱정)",
+    r"(고민)\s*뭐(야|니)",
+]
+SELF_NEG_PATTERNS = [
+    r"(내|나|제가|내가).{0,6}(고민|걱정)",  # 사용자가 자신의 고민을 말하는 경우는 제외
+]
+
+def is_ask_about_jinwoo_worry(text: str) -> bool:
+    t = (text or "").strip()
+    for neg in SELF_NEG_PATTERNS:
+        if re.search(neg, t, flags=re.IGNORECASE):
+            return False
+    for p in ASK_PATTERNS:
+        if re.search(p, t, flags=re.IGNORECASE):
+            return True
+    # 공백 제거 형태 간단 체크
+    t2 = t.replace(" ", "")
+    if any(x in t2 for x in ["고민있어?", "고민있어", "너고민", "진우고민", "고민뭐야"]):
+        return True
+    return False
+
+
 # ── 입력 & 응답 ───────────────────────────────────────────────────────────────
-
-import time
-import random
-
-def calc_delay(user_len: int, ai_len: int) -> float:
-    # 4가지 규칙 기반 베이스
-    if user_len <= 100 and ai_len <= 100:
-        base = 0.5
-    elif user_len <= 100 and ai_len > 100:
-        base = 0.8
-    elif user_len > 100 and ai_len > 100:
-        base = 1.5
-    else:  # user>100, ai<=100
-        base = 1.0
-
-    # 타자속도 보정(문자/초)
-    cps = random.uniform(35, 55)
-    typing_time = ai_len / cps
-
-    # 스무딩(0.3s~2.0s) + 약간의 지터
-    delay = max(0.3, min(max(base, typing_time * 0.7), 2.0))
-    delay *= random.uniform(0.9, 1.1)
-    return round(delay, 2)
-
-
-import time
-import random
 
 def calc_delay(user_len: int, ai_len: int) -> float:
     # 4가지 규칙 기반 베이스
@@ -291,8 +284,12 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
-    # 모델 즉시 호출
-    reply = llm.invoke(history).content
+    # 트리거 문구면 LLM을 호출하지 않고 랜덤 고민으로 응답
+    if is_ask_about_jinwoo_worry(user_text):
+        reply = random.choice(JINWOO_WORRIES)
+    else:
+        # 모델 즉시 호출
+        reply = llm.invoke(history).content
 
     # 응답 길이 기반 연출 지연
     delay = calc_delay(len(user_text), len(reply))
@@ -304,5 +301,3 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     render_message("assistant", reply)
 
 st.markdown('</div>', unsafe_allow_html=True)
-
-
