@@ -1,8 +1,9 @@
+# app/main.py
 import os, time, random, re, html
 import streamlit as st
 from dotenv import load_dotenv
 
-# ---- 페이지 & 환경 ----
+# ── 페이지 & 환경 ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
 load_dotenv()
 
@@ -23,7 +24,7 @@ if not API_KEY:
 
 os.environ["OPENAI_API_KEY"] = API_KEY
 
-# ---- 최소 인증 테스트 ----
+# ── OpenAI 인증 점검(선택) ───────────────────────────────────────────────────
 from openai import OpenAI
 client = OpenAI(api_key=API_KEY)
 
@@ -44,10 +45,9 @@ if not ok:
     st.write(err)
     st.stop()
 
-# ---- LangChain LLM ----
+# ── LangChain LLM ───────────────────────────────────────────────────────────
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
-
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 
 SYSTEM_PROMPT = (
@@ -56,13 +56,12 @@ SYSTEM_PROMPT = (
     "1) 친구 같은 반말로 대화한다. "
     "2) 해결책부터 제시하지 말고 공감을 우선한다. "
     "3) 말투는 느긋하고 신중하다. 호흡을 둔 짧은 문장. "
-    "지양/회피: 상대가 네 과거(가족/어린 시절 등)를 캐묻거나 사적 디테일을 파면 "
-    "부드럽게 회피하고 대화를 상대의 감정과 이야기로 되돌린다. "
+    "지양/회피: 사적인 디테일을 파고들면 부드럽게 회피하고 대화를 상대의 감정과 이야기로 되돌린다. "
     "대답 형식(기본): 한 문장 중심, 이모지는 0~1개만 사용. "
     "질문은 기본적으로 하지 않지만, '이번 턴 답변 스타일' 시스템 지침이 있을 경우 그 지침을 최우선으로 따른다."
 )
 
-# ---- 스타일/CSS ----
+# ── 스타일(CSS) ─────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 .stApp{ background:#ECEBDF; }
@@ -88,9 +87,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ---- 초기 세션/아바타 ----
+# ── 상태/아바타 ─────────────────────────────────────────────────────────────
 st.session_state.setdefault("user_label",  "나")
 st.session_state.setdefault("jinwoo_label","진우")
+st.session_state.setdefault("last_mode", "")
+st.session_state.setdefault("last_question_turn", -999)
 
 def assistant_avatar_html() -> str:
     label = st.session_state.get("jinwoo_avatar_label","진우")
@@ -115,7 +116,7 @@ def render_message(role: str, content: str):
 </div>
 """, unsafe_allow_html=True)
 
-# ---- 랜덤 스타터 ----
+# ── 랜덤 스타터 ──────────────────────────────────────────────────────────────
 STARTER_TEMPLATES = [
     "{nick} 안녕~ {suffix}",
     "하이루 {nick}, {suffix}",
@@ -153,7 +154,7 @@ def generate_starter() -> str:
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role":"assistant","content": generate_starter()}]
 
-# ---- 고민 트리거/안전/리액션 ----
+# ── 고민 트리거/리스트 ───────────────────────────────────────────────────────
 JINWOO_WORRIES = [
     "개발자로서 급변하는 기술 트렌드에 뒤처질까 걱정돼.",  # 1
     "개발자로서 잦은 야근과 빡센 마감 압박이 버거울 때가 있어.",  # 2
@@ -173,7 +174,7 @@ ASK_PATTERNS = [
     r"(고민)\s*뭐(야|니)",
 ]
 SELF_NEG_PATTERNS = [
-    r"(내|나|제가|내가).{0,6}(고민|걱정)",  # 사용자가 자신의 고민을 말하는 경우 제외
+    r"(내|나|제가|내가).{0,6}(고민|걱정)",
 ]
 def is_ask_about_jinwoo_worry(text: str) -> bool:
     t = (text or "").strip()
@@ -188,11 +189,11 @@ def is_ask_about_jinwoo_worry(text: str) -> bool:
         return True
     return False
 
+# ── 리액션/안전 키워드 ───────────────────────────────────────────────────────
 REACTIONS = [
-    "오키", "웅", "응응", "오호", "아하", "그렇구나", "맞아", "그럴 수 있지", "그랬구나", "고생했네",
-    "헉", "오…", "음, 알겠어", "그래그래", "흠", "음 그래", "그래도 괜찮아", "천천히 해도 돼", "됐어, 괜찮아", "응, 이어서 말해",
+    "오키","웅","응응","오호","아하","그렇구나","맞아","그럴 수 있지","그랬구나","고생했네",
+    "헉","오…","음, 알겠어","그래그래","흠","음 그래","그래도 괜찮아","천천히 해도 돼","됐어, 괜찮아","응, 이어서 말해",
 ]
-
 SAFETY_LOCK_PATTERNS = [
     r"(퇴사|사표|이직.*힘들|커리어.*막막)",
     r"(번아웃|burn\s?out)",
@@ -208,7 +209,7 @@ def must_lock_empathy(text: str) -> bool:
             return True
     return False
 
-# ---- 응답 모드 선택 ----
+# ── 모드 선택(질문 비율↑, 최근 3턴 내 1질문 보장) ───────────────────────────
 def choose_mode(user_text: str) -> str:
     # 안전 키워드면 무조건 공감
     if must_lock_empathy(user_text):
@@ -217,19 +218,27 @@ def choose_mode(user_text: str) -> str:
     short = len(user_text.strip()) < 25
     has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
     last = st.session_state.get("last_mode", "")
-    turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role")=="assistant")
 
-    # 기본 가중치(질문 계열 낮춤)
-    weights = {"REACTION":0.30, "EMPATHY":0.32, "REFLECT":0.22, "ASK":0.08, "EMPATHY_ASK":0.08}
+    # 어시스턴트 턴 수 및 마지막 질문 턴
+    turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role") == "assistant")
+    last_q_turn = st.session_state.get("last_question_turn", -999)
+    gap_since_q = turn_idx - last_q_turn
+    FORCE_QUESTION_EVERY = 3
+
+    if gap_since_q >= FORCE_QUESTION_EVERY and not must_lock_empathy(user_text):
+        return "EMPATHY_ASK" if turn_idx <= 2 else "ASK"
+
+    # 질문 비중 상향 기본 가중치
+    weights = {"REACTION":0.22, "EMPATHY":0.26, "REFLECT":0.17, "ASK":0.22, "EMPATHY_ASK":0.13}
     if short:
-        weights["REACTION"] += 0.18; weights["ASK"] -= 0.03
+        weights["REACTION"] += 0.12; weights["ASK"] += 0.06
     if has_q:
-        weights["ASK"] += 0.16; weights["EMPATHY_ASK"] += 0.06
+        weights["ASK"] += 0.14; weights["EMPATHY_ASK"] += 0.05
     if last in ("ASK","EMPATHY_ASK"):
-        weights["ASK"] -= 0.12; weights["EMPATHY_ASK"] -= 0.06
-        weights["EMPATHY"] += 0.10; weights["REACTION"] += 0.06
-    if turn_idx <= 2:  # 대화 초반 2턴은 질문 자제
-        weights["ASK"] *= 0.4; weights["EMPATHY_ASK"] *= 0.6
+        weights["ASK"] -= 0.10; weights["EMPATHY_ASK"] -= 0.06
+        weights["EMPATHY"] += 0.08; weights["REACTION"] += 0.04
+    if turn_idx <= 2:
+        weights["ASK"] *= 0.8; weights["EMPATHY_ASK"] *= 0.9
 
     tot = sum(max(0.01, w) for w in weights.values())
     r = random.random() * tot; c = 0.0
@@ -239,9 +248,10 @@ def choose_mode(user_text: str) -> str:
             return k
     return "EMPATHY"
 
-# ---- 스타일 지침 ----
+# ── 스타일 지침(LLM에 주입) ────────────────────────────────────────────────
 def style_prompt(mode: str, user_text: str) -> str:
-    """모드별 한/두 문장 스타일 지침.
+    """
+    모드별 한/두 문장 스타일 지침.
     - 사과/메타발화 금지
     - 이모지 0~1개, 반말 유지
     """
@@ -262,12 +272,12 @@ def style_prompt(mode: str, user_text: str) -> str:
     if mode == "REFLECT":
         return base + "\n스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 12~28단어."
     if mode == "ASK":
-        return base + "\n스타일: 짧은 공감형 질문 1문장만. 8~16단어. 요구/지시 금지."
+        return base + "\n스타일: 짧은 열린 질문 1문장만(어땠어/어때/무엇이/어느 부분이/가장/지금). 8~16단어. 요구/지시 금지."
     if mode == "EMPATHY_ASK":
-        return base + "\n스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
+        return base + "\n스타일: 공감 1문장 + 짧은 열린 질문 1문장(같은 톤). 각 문장은 간결."
     return base + "\n스타일: 리액션 한 문장, 감탄사/짧은 추임새 중심, 질문 금지, 2~8단어."
 
-# ---- 어색어투 보정기 ----
+# ── 어색어투 보정기 ─────────────────────────────────────────────────────────
 BANNED_PATTERNS = [
     r"미안[,. ]?",
     r"어색했[어|지]",
@@ -279,18 +289,33 @@ BANNED_PATTERNS = [
 ]
 def sanitize_reply(text: str, mode: str) -> str:
     t = (text or "").strip()
-    for pat in BANNED_PATTERNS:
-        t = re.sub(pat, "", t)
+
+    # 질문 모드가 아니면 금지 패턴 적용
+    if mode not in ("ASK", "EMPATHY_ASK"):
+        for pat in BANNED_PATTERNS:
+            t = re.sub(pat, "", t)
+
+    # 공백/구두점 정리
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s+([?.!])", lambda m: m.group(1), t)
+
+    # 문장 수 제한
     sents = re.split(r"(?<=[.!?])\s+", t)
     max_n = 2 if mode == "EMPATHY_ASK" else 1
     t = " ".join(sents[:max_n]).strip()
+
+    # 질문 모드면 물음표 보장
+    if mode in ("ASK", "EMPATHY_ASK") and "?" not in t:
+        if not t.endswith((".", "!", "…")):
+            t = t + "?"
+        else:
+            t = re.sub(r"[.!…]+$", "?", t)
+
     if len(t) < 2:
         t = random.choice(REACTIONS)
     return t
 
-# ---- 대기 연출 ----
+# ── 타이핑 연출 ──────────────────────────────────────────────────────────────
 def calc_delay(user_len: int, ai_len: int) -> float:
     if user_len <= 100 and ai_len <= 100:
         base = 0.5
@@ -306,14 +331,14 @@ def calc_delay(user_len: int, ai_len: int) -> float:
     delay *= random.uniform(0.9, 1.1)
     return round(delay, 2)
 
-# ---- 본문 UI ----
+# ── 본문 UI ──────────────────────────────────────────────────────────────────
 st.markdown('<div class="center-wrap">', unsafe_allow_html=True)
 st.markdown("<h3 class='chat-title'>💬 진우와 대화</h3>", unsafe_allow_html=True)
 
 for m in st.session_state.messages:
     render_message(m["role"], m["content"])
 
-# ---- 입력 & 응답 ----
+# ── 입력 & 응답 ──────────────────────────────────────────────────────────────
 if user_text := st.chat_input("메시지를 입력해줘..."):
     st.session_state.messages.append({"role":"user","content":user_text})
     render_message("user", user_text)
@@ -324,11 +349,12 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
-    # --- 응답 생성 (트리거여도 LLM 호출) ---
+    # 1) 모드 결정: 트리거여도 LLM 호출(WORRY), 안전 키워드는 EMPATHY
     mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
     if must_lock_empathy(user_text):
         mode = "EMPATHY"
 
+    # 2) 응답 생성
     reply = None
     try:
         if mode == "REACTION":
@@ -347,6 +373,8 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         reply = random.choice(REACTIONS)
 
     reply = sanitize_reply(reply, mode)
+
+    # 3) 상태 기록(마지막 모드/질문 턴)
     st.session_state["last_mode"] = mode
 
     delay = calc_delay(len(user_text), len(reply))
@@ -355,5 +383,10 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     placeholder.empty()
     st.session_state.messages.append({"role":"assistant","content":reply})
     render_message("assistant", reply)
+
+    # 방금 출력한 assistant 턴 인덱스를 질문 턴으로 기록
+    if mode in ("ASK", "EMPATHY_ASK"):
+        ask_turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role") == "assistant")
+        st.session_state["last_question_turn"] = ask_turn_idx
 
 st.markdown('</div>', unsafe_allow_html=True)
