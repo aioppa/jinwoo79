@@ -423,6 +423,39 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
+# --- 응답 생성 (트리거여도 LLM 호출) ---
+mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
+reply = None  # ← 모든 경로에서 값을 보장하기 위해 초기화
+
+try:
+    if mode == "REACTION":
+        # LLM 호출 없이 즉답 (짧은 리액션)
+        reply = random.choice(REACTIONS)
+    else:
+        # 히스토리: 시스템 프롬프트 + 이번 턴 스타일 지침 + 대화 이력
+        history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
+        for m in st.session_state.messages:
+            history.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
+        resp = llm.invoke(history)
+        reply = (resp.content or "").strip()
+except Exception as e:
+    # LLM 실패 시 폴백 및 로그
+    st.session_state["last_error"] = f"invoke_error: {e}"
+    reply = None
+
+# 비어있거나 공백만 있는 경우 폴백 보장
+if not reply:
+    reply = random.choice(REACTIONS)
+
+# (선택) 보정기 사용 중이라면 마지막에 적용
+# reply = sanitize_reply(reply, mode)
+
+# 모드 기록
+st.session_state["last_mode"] = mode
+
+
+
+
     
     # 응답 길이 기반 연출 지연
     delay = calc_delay(len(user_text), len(reply))
