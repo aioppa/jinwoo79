@@ -66,6 +66,14 @@ SYSTEM_PROMPT = """
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)  # api_key 인자 제거
 
+# 예시 호출 (개발용 버튼)
+if st.button("테스트 응답 보기"):
+    resp = llm.invoke([
+        SystemMessage(content=SYSTEM_PROMPT),
+        HumanMessage(content="요즘 마음이 복잡해."),
+    ])
+    st.write(resp.content)
+
 
 # ── 스타일(CSS) ───────────────────────────────────────────────────────────────
 st.markdown("""
@@ -238,30 +246,29 @@ JINWOO_WORRIES = [
 
 # --- 응답 스타일 컨트롤러 ---
 REACTIONS = [
+    "오키",
+    "웅",
+    "응응",
+    "오호",
+    "아하",
+    "그렇구나",
+    "맞아",
+    "그럴 수 있지",
+    "그랬구나",
+    "고생했네",
+    "헉",
     "오…",
-    "헉, 그랬구나.",
-    "음, 알겠어.",
-    "오키, 듣고 있어.",
-    "아이고, 쉽지 않겠다.",
-    "와… 그랬구나.",
-    "응, 그러게.",
-    "맞아, 그런 순간 있어.",
-    "흠… 그럴 수 있지.",
-    "어우, 고생했네.",
-    "그래, 이해돼.",
-    "힘들었겠다.",
-    "하… 숨 좀 고르자.",
-    "음, 천천히 괜찮아.",
-    "그래도 여기 있어.",
-    "내가 듣고 있어.",
-    "괜찮아, 말해줘.",
-    "오케이, 체크했어.",
-    "그랬구나, 응.",
-    "알겠어, 곁에 있을게.",
+    "음, 알겠어",
+    "그래그래",
+    "흠",
+    "음 그래",
+    "그래도 괜찮아",
+    "천천히 해도 돼",
+    "됐어, 괜찮아",
+    "응, 이어서 말해",
 ]
 
 # 안전 키워드가 감지되면 무조건 공감 모드로 잠금
-# 2) 안전 잠금 패턴(정규식): 공백표현은 \s를 사용
 SAFETY_LOCK_PATTERNS = [
     r"(퇴사|사표|이직.*힘들|커리어.*막막)",
     r"(번아웃|burn\s?out)",
@@ -270,6 +277,7 @@ SAFETY_LOCK_PATTERNS = [
     r"(학대|폭력|가정폭력|직장\s?괴롭힘|왕따)",
     r"(무가치|무의미|허무|자괴)",
 ]
+
 def must_lock_empathy(text: str) -> bool:
     t = (text or "").lower()
     for p in SAFETY_LOCK_PATTERNS:
@@ -277,11 +285,36 @@ def must_lock_empathy(text: str) -> bool:
             return True
     return False
 
-
 def choose_mode(user_text: str) -> str:
     # 안전 키워드면 무조건 공감 모드
     if must_lock_empathy(user_text):
         return "EMPATHY"
+
+    short = len(user_text.strip()) < 25
+    has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
+    last = st.session_state.get("last_mode", "")
+    turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role")=="assistant")
+
+    # 기본 가중치(질문 계열 낮춤)
+    weights = {"REACTION":0.30, "EMPATHY":0.32, "REFLECT":0.22, "ASK":0.08, "EMPATHY_ASK":0.08}
+    if short:
+        weights["REACTION"] += 0.18; weights["ASK"] -= 0.03
+    if has_q:
+        weights["ASK"] += 0.16; weights["EMPATHY_ASK"] += 0.06
+    if last in ("ASK","EMPATHY_ASK"):
+        weights["ASK"] -= 0.12; weights["EMPATHY_ASK"] -= 0.06
+        weights["EMPATHY"] += 0.10; weights["REACTION"] += 0.06
+    # 대화 초반 2턴은 질문 자제
+    if turn_idx <= 2:
+        weights["ASK"] *= 0.4; weights["EMPATHY_ASK"] *= 0.6
+
+    tot = sum(max(0.01, w) for w in weights.values())
+    r = random.random() * tot; c = 0.0
+    for k, w in weights.items():
+        c += max(0.01, w)
+        if r <= c:
+            return k
+    return "EMPATHY"
 
     short = len(user_text.strip()) < 25
     has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
@@ -304,23 +337,31 @@ def choose_mode(user_text: str) -> str:
             return k
     return "EMPATHY"
 
-# 1) 답변 스타일 지침 (문자열 안전 결합)
 def style_prompt(mode: str, user_text: str) -> str:
+    """모드별 한/두 문장 스타일 지침.
+    - 메타발화(예: '듣고 있어', '이야기해보자')/사과 금지
+    - 이모지 0~1개, 반말 유지
+    """
     base = (
         "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. "
-        "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용."
+        "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용. "
+        "사과/메타발화(예: '듣고 있어', '이야기해보자') 금지."
     )
     if mode == "EMPATHY":
-        return base + "\n스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 12~28단어."
+        return base + "
+스타일: 질문 없이 공감 1문장. 사용자의 핵심 감정 단어 1개를 반영. 10~24단어."
     elif mode == "REFLECT":
-        return base + "\n스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 15~32단어."
+        return base + "
+스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 12~28단어."
     elif mode == "ASK":
-        return base + "\n스타일: 짧은 공감형 질문 1문장만. 10~18단어. 반말. 요구/지시 금지."
+        return base + "
+스타일: 짧은 공감형 질문 1문장만. 8~16단어. 요구/지시 금지."
     elif mode == "EMPATHY_ASK":
-        return base + "\n스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
+        return base + "
+스타일: 공감 1문장 + 짧은 질문 1문장, 총 2문장. 각 문장은 간결."
     else:
-        return base + "\n스타일: 리액션 한 문장, 감탄사 중심, 질문 금지, 3~10단어."
-
+        return base + "
+스타일: 리액션 한 문장, 감탄사/짧은 추임새 중심, 질문 금지, 2~8단어."
 
 ASK_PATTERNS = [
     r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
@@ -384,20 +425,15 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     )
 
     # 트리거 문구면 LLM을 호출하지 않고 랜덤 고민으로 응답
-    if is_ask_about_jinwoo_worry(user_text):
-        reply = random.choice(JINWOO_WORRIES)
-        st.session_state["last_mode"] = "WORRY_AUTO"
+    mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
+    if mode == "REACTION":
+        reply = random.choice(REACTIONS)
     else:
-        mode = choose_mode(user_text)
-        if mode == "REACTION":
-            reply = random.choice(REACTIONS)
-        else:
-            # 히스토리 구성: 시스템 프롬프트 + 이번 턴 스타일 지침 + 대화 이력
-            history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
-            for m in st.session_state.messages:
-                history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
-            reply = llm.invoke(history).content
-        st.session_state["last_mode"] = mode
+        history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
+        for m in st.session_state.messages:
+            history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
+        reply = llm.invoke(history).content
+    st.session_state["last_mode"] = mode
 
     # 응답 길이 기반 연출 지연
     delay = calc_delay(len(user_text), len(reply))
