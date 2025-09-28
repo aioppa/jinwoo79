@@ -423,17 +423,7 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
-    # 트리거 문구면 LLM을 호출하지 않고 랜덤 고민으로 응답
-    mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
-    if mode == "REACTION":
-        reply = random.choice(REACTIONS)
-    else:
-        history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
-        for m in st.session_state.messages:
-            history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
-        reply = llm.invoke(history).content
-    st.session_state["last_mode"] = mode
-
+    
     # 응답 길이 기반 연출 지연
     delay = calc_delay(len(user_text), len(reply))
     time.sleep(delay)
