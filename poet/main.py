@@ -1,9 +1,8 @@
 # app/main.py
 import os, time, random, re, html
+from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 # ── 페이지 & 환경 ───────────────────────────────────────────────────────────
 st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
@@ -21,10 +20,10 @@ def get_openai_api_key() -> str:
 
 API_KEY = get_openai_api_key()
 if not API_KEY:
-    st.error("OPENAI_API_KEY가 설정되지 않았습니다..env 또는 secrets.toml을 확인하세요.")
+    st.error("OPENAI_API_KEY가 설정되지 않았습니다. .env 또는 secrets.toml을 확인하세요.")
     st.stop()
 
-os.environ = API_KEY
+os.environ["OPENAI_API_KEY"] = API_KEY
 
 # ── OpenAI 인증 점검(선택) ───────────────────────────────────────────────────
 from openai import OpenAI
@@ -85,13 +84,13 @@ st.markdown("""
 }
 .bubble.assistant{ background:#FFFFFF; color:#222; border:1px solid #E8E8E8; border-top-left-radius:6px; }
 .bubble.user{ background:#FFE14A; color:#222; border:1px solid #F7D83A; border-top-right-radius:6px; }
-{ max-width:820px; margin-left:auto; margin-right:auto; }
+[data-testid="stBottomBlockContainer"]{ max-width:820px; margin-left:auto; margin-right:auto; }
 </style>
 """, unsafe_allow_html=True)
 
 # ── 상태/아바타 ─────────────────────────────────────────────────────────────
-st.session_state.setdefault("user_label",   "나")
-st.session_state.setdefault("jinwoo_label", "진우")
+st.session_state.setdefault("user_label",  "나")
+st.session_state.setdefault("jinwoo_label","진우")
 st.session_state.setdefault("last_mode", "")
 st.session_state.setdefault("last_question_turn", -999)
 
@@ -118,7 +117,59 @@ def render_message(role: str, content: str):
 </div>
 """, unsafe_allow_html=True)
 
-# ── 랜덤 스타터 & 시간대별 인사 (개선됨) ───────────────────────────────────────
+# ── 시간대별 인사 ────────────────────────────────────────────────────────────
+def get_time_based_greeting() -> str:
+    """현재 시간에 맞춰 자연스러운 인사 반환"""
+    now = datetime.now()
+    hour = now.hour
+    
+    # 시간대별 인사 템플릿
+    if 4 <= hour < 7:  # 새벽
+        greetings = [
+            "벌써 일어났어? 일찍 일어났네",
+            "와, 일찍 일어났구나",
+            "새벽부터 일어나서 뭐해?",
+        ]
+    elif 7 <= hour < 11:  # 아침
+        greetings = [
+            "좋은 아침이야~ 잘 잤어?",
+            "아침이다! 기분은 어때?",
+            "좋은 아침~ 오늘 하루 어떻게 시작했어?",
+        ]
+    elif 11 <= hour < 14:  # 점심
+        greetings = [
+            "점심은 먹었어?",
+            "점심때네, 뭐 먹었어?",
+            "점심 시간이야, 맛있는 거 먹었어?",
+        ]
+    elif 14 <= hour < 18:  # 오후
+        greetings = [
+            "오후네~ 오늘 하루 어때?",
+            "오후 시간이다, 좀 피곤해?",
+            "오후에는 뭐 하고 있어?",
+        ]
+    elif 18 <= hour < 21:  # 저녁
+        greetings = [
+            "저녁 먹었어?",
+            "저녁 시간이네, 식사 했어?",
+            "저녁은 뭐 먹었어?",
+        ]
+    elif 21 <= hour < 24:  # 밤
+        greetings = [
+            "아직 안 잤어?",
+            "늦은 시간이네, 오늘 하루 어땠어?",
+            "밤에 뭐 하고 있어?",
+        ]
+    else:  # 0-4시 (심야)
+        greetings = [
+            "아직도 안 잤어? 괜찮아?",
+            "늦은 시간인데 잠은 안 자?",
+            "심야네, 무슨 일 있어?",
+        ]
+    
+    return random.choice(greetings)
+
+# ── 랜덤 스타터 (시간대 반영) ────────────────────────────────────────────────
 STARTER_TEMPLATES = [
     "{nick} 안녕~ {suffix}",
     "하이루 {nick}, {suffix}",
@@ -142,56 +193,33 @@ SUFFIXES = [
     "컨디션은 어때?",
     "괜찮지?",
     "조금 피곤해 보이네?",
-    "요즘 많이 바빴어?",
+    "요즘 많이 바뻣어?",
     "오늘의 하이라이트는 뭐였어?",
     "마음은 좀 편해?",
     "별일 없었지?",
 ]
 
 def generate_starter() -> str:
-    """기존의 일반 랜덤 스타터 생성 함수"""
-    tmpl = random.choice(STARTER_TEMPLATES)
-    nick = random.choice(NICKS)
-    suffix = random.choice(SUFFIXES)
-    return tmpl.format(nick=nick, suffix=suffix)
-
-def generate_time_aware_starter() -> str:
-    """
-    [신규 기능] 시간대에 따라 다른 인사말을 생성하는 함수.
-    서버 위치와 무관하게 한국 시간을 기준으로 작동.
-    """
-    try:
-        tz = ZoneInfo("Asia/Seoul")
-        hour = datetime.now(tz).hour
-    except Exception:
-        hour = datetime.now().hour # Fallback
-
-    if 4 <= hour < 7: # 새벽 4시 ~ 6시 59분
-        return random.choice(["벌써 일어났어?", "우와, 부지런하다.", "이렇게 일찍? 좋은 아침!"])
-    elif 12 <= hour < 14: # 점심 12시 ~ 1시 59분
-        return random.choice(["점심은 먹었어?", "맛점해! :)", "점심 시간이다! 뭐 먹을거야?"])
-    elif 22 <= hour or hour < 4: # 밤 10시 ~ 새벽 3시 59분
-        return random.choice(["아직 안잤어?", "이제 슬슬 잘 시간 아니야?", "오늘 하루도 고생 많았어. 이제 푹 쉬어."])
-    elif 7 <= hour < 12: # 오전 7시 ~ 11시 59분
-        # 오전에는 기존 랜덤 인사풀에 '좋은 아침' 관련 문구를 추가
-        morning_suffixes = SUFFIXES + ["좋은 아침이야!", "오늘 아침 컨디션은 어때?", "상쾌한 아침이다!"]
+    """시간대 기반 인사를 50% 확률로 섞어서 생성"""
+    if random.random() < 0.5:
+        # 시간대 기반 인사 사용
+        return get_time_based_greeting()
+    else:
+        # 기존 랜덤 스타터 사용
         tmpl = random.choice(STARTER_TEMPLATES)
         nick = random.choice(NICKS)
-        suffix = random.choice(morning_suffixes)
+        suffix = random.choice(SUFFIXES)
         return tmpl.format(nick=nick, suffix=suffix)
-    else: # 그 외 시간 (오후, 저녁)
-        return generate_starter()
 
 if "messages" not in st.session_state:
-    # [개선] 앱 시작 시 시간대별 인사 함수를 호출하도록 변경
-    st.session_state.messages = [{"role":"assistant","content": generate_time_aware_starter()}]
+    st.session_state.messages = [{"role":"assistant","content": generate_starter()}]
 
-# ── 고민 트리거/리스트 & 페르소나 질문 트리거 (개선됨) ────────────────────────
+# ── 고민 트리거/리스트 ───────────────────────────────────────────────────────
 JINWOO_WORRIES = [
     "개발자로서 급변하는 기술 트렌드에 뒤처질까 걱정돼.",
-    "잦은 야근과 빡센 마감 압박이 버거울 때가 있어.",
-    "클라이언트가 복잡하고 불분명한 목표를 제시할 때 방향 잡기가 힘들어.",
-    "디자이너·기획자와 소통과 협업이 어긋날 때 스트레스가 쌓여.",
+    "개발자로서 잦은 야근과 빡센 마감 압박이 버거울 때가 있어.",
+    "개발자로서 클라이언트가 복잡하고 불분명한 목표를 제시할 때 방향 잡기가 힘들어.",
+    "디자이너·기획자와 개발자 사이 소통과 협업이 어긋날 때 스트레스가 쌓여.",
     "프리랜서라 수입이 불확실해서 장기 계획 세우기가 어려워.",
     "일과 사생활 경계가 흐려져서 제대로 쉬는 시간을 확보하기가 힘들어.",
     "스스로 일감을 찾고 영업·계약까지 챙겨야 해서 에너지 소모가 커.",
@@ -199,46 +227,37 @@ JINWOO_WORRIES = [
     "의지할 동료가 없다는 사실이 가끔 크게 느껴져.",
 ]
 
-# [개선] '고민' 키워드에만 한정되지 않고, '진우' 자신에 대한 모든 질문을 포착하도록 확장
-ASK_JINWOO_PATTERNS = [
-    r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤|뭐|어때)",
-    r"(니|네|너의)\s*(생각|목표|꿈|계획|상태|기분)",
+ASK_PATTERNS = [
+    r"(너|진우)(는|도)?\s*(요즘|최근)?\s*(무슨|어떤)?\s*(고민|걱정|스트레스)\s*(있|하|겪)\w*",
+    r"(고민|걱정)\s*(있어|있니|있냐|있음|있지)",
+    r"(니|네)\s*(고민|걱정)",
+    r"(고민)\s*뭐(야|니)",
 ]
 SELF_NEG_PATTERNS = [
-    r"(내|나|제가|내가).{0,6}(고민|걱정|생각|목표)", # '내 생각' 등 자신에 대한 질문은 제외
+    r"(내|나|제가|내가).{0,6}(고민|걱정)",
 ]
-def is_ask_about_jinwoo(text: str) -> bool:
-    """'진우' 페르소나에 대한 질문인지 확인하는 함수"""
+def is_ask_about_jinwoo_worry(text: str) -> bool:
     t = (text or "").strip()
-    # 사용자가 자신에 대해 말하는 경우는 제외
     for neg in SELF_NEG_PATTERNS:
         if re.search(neg, t, flags=re.IGNORECASE):
             return False
-    # '진우'에 대한 질문 패턴 확인
-    for p in ASK_JINWOO_PATTERNS:
+    for p in ASK_PATTERNS:
         if re.search(p, t, flags=re.IGNORECASE):
             return True
+    t2 = t.replace(" ", "")
+    if any(x in t2 for x in ["고민있어?", "고민있어", "너고민", "진우고민", "고민뭐야"]):
+        return True
     return False
 
-# ── 리액션/안전 키워드/공감 표현 (개선됨) ─────────────────────────────────────
-# [개선] 오해의 소지가 있는 "됐어, 괜찮아" 제거
-REACTIONS = [
-    "오키","웅","응응","오호","아하","그렇구나","맞아","그럴 수 있지","그랬구나","고생했네",
-    "헉","오…","음, 알겠어","그래그래","흠","음 그래","그래도 괜찮아","천천히 해도 돼","응, 이어서 말해",
-]
-
-# [신규 기능] LLM에게 공감 스타일을 가이드하기 위한 예시 문구 리스트
-EMPATHETIC_PHRASES = [
-    "그래? 그거 고민되겠다.",
-    "어휴, 많이 힘들었겠다.",
-    "맘고생이 많았겠네.",
-    "정말 쉽지 않았겠다.",
-    "그 마음 충분히 이해돼.",
-]
-
-# [신규 기능] 간단한 동의/감사 표현을 LLM 호출 없이 처리하기 위한 패턴
-SIMPLE_ACK_PATTERNS = [
-    r"^\s*(응|어|응응|웅|ㅇㅇ|ㅇㅋ|오키|ok|알았어|알겠어|고마워|땡큐|감사)\s*[.!?~]*\s*$",
+# ── 리액션/안전 키워드 (개선됨) ──────────────────────────────────────────────
+# REACTION 모드 삭제 → 모든 응답은 LLM 통과
+# 공감 표현 추가
+EMPATHY_EXPRESSIONS = [
+    "그래? 그거 고민되겠다",
+    "어휴, 많이 힘들었겠다",
+    "맘고생이 많았겠네",
+    "그랬구나, 쉽지 않았겠어",
+    "많이 속상했겠다",
 ]
 
 SAFETY_LOCK_PATTERNS = [
@@ -256,60 +275,69 @@ def must_lock_empathy(text: str) -> bool:
             return True
     return False
 
-# ── 모드 선택 로직 (개선됨) ──────────────────────────────────────────────────
+# ── 모드 선택(개선됨: REACTION 제거, 질문 비율 조정) ─────────────────────────
 def choose_mode(user_text: str) -> str:
-    """사용자 입력에 따라 최적의 응답 모드를 결정하는 함수 (로직 대폭 개선)"""
-    # 0. [신규] 간단한 응답은 LLM 호출 없이 바로 REACTION 처리
-    for p in SIMPLE_ACK_PATTERNS:
-        if re.fullmatch(p, user_text.strip(), flags=re.IGNORECASE):
-            return "REACTION"
-
-    # 1. 안전 키워드가 있으면 무조건 공감 모드
+    """
+    REACTION 모드 제거 - 모든 응답은 LLM 통과
+    """
+    # 안전 키워드면 무조건 공감
     if must_lock_empathy(user_text):
         return "EMPATHY"
-    
-    # 2. [신규] '진우' 자신에 대한 질문이면 SELF_DISCLOSURE 모드
-    if is_ask_about_jinwoo(user_text):
-        # '고민' 키워드가 포함되면 WORRY 모드로 연결
-        if any(keyword in user_text for keyword in ["고민", "걱정", "스트레스"]):
-            return "WORRY"
-        return "SELF_DISCLOSURE"
 
-    # 3. 기존 확률 기반 모드 선택 (위 조건에 해당하지 않을 경우)
     short = len(user_text.strip()) < 25
     has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
     last = st.session_state.get("last_mode", "")
 
-    turn_idx = sum(1 for m in st.session_state.get("messages",) if m.get("role") == "assistant")
+    # 어시스턴트 턴 수 및 마지막 질문 턴
+    turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role") == "assistant")
     last_q_turn = st.session_state.get("last_question_turn", -999)
     gap_since_q = turn_idx - last_q_turn
     FORCE_QUESTION_EVERY = 3
 
-    if gap_since_q >= FORCE_QUESTION_EVERY:
+    if gap_since_q >= FORCE_QUESTION_EVERY and not must_lock_empathy(user_text):
         return "EMPATHY_ASK" if turn_idx <= 2 else "ASK"
 
-    weights = {"REACTION":0.22, "EMPATHY":0.26, "REFLECT":0.17, "ASK":0.22, "EMPATHY_ASK":0.13}
-    if short: weights += 0.12; weights += 0.06
-    if has_q: weights += 0.14; weights += 0.05
+    # REACTION 제거, SHORT_EMPATHY 추가 (짧은 공감 응답)
+    weights = {"SHORT_EMPATHY":0.20, "EMPATHY":0.28, "REFLECT":0.17, "ASK":0.22, "EMPATHY_ASK":0.13}
+    
+    if short:
+        weights["SHORT_EMPATHY"] += 0.12
+        weights["ASK"] += 0.06
+    if has_q:
+        weights["ASK"] += 0.14
+        weights["EMPATHY_ASK"] += 0.05
     if last in ("ASK","EMPATHY_ASK"):
-        weights -= 0.10; weights -= 0.06
-        weights += 0.08; weights += 0.04
-    if turn_idx <= 2: weights *= 0.8; weights *= 0.9
+        weights["ASK"] -= 0.10
+        weights["EMPATHY_ASK"] -= 0.06
+        weights["EMPATHY"] += 0.08
+        weights["SHORT_EMPATHY"] += 0.04
+    if turn_idx <= 2:
+        weights["ASK"] *= 0.8
+        weights["EMPATHY_ASK"] *= 0.9
 
     tot = sum(max(0.01, w) for w in weights.values())
-    r = random.random() * tot; c = 0.0
+    r = random.random() * tot
+    c = 0.0
     for k, w in weights.items():
         c += max(0.01, w)
-        if r <= c: return k
+        if r <= c:
+            return k
     return "EMPATHY"
 
-# ── 스타일 지침(LLM에 주입, 개선됨) ──────────────────────────────────────────
+# ── 스타일 지침(개선됨) ──────────────────────────────────────────────────────
 def style_prompt(mode: str, user_text: str) -> str:
+    """
+    모드별 스타일 지침
+    - SHORT_EMPATHY: 짧은 공감 (추가된 표현 활용)
+    - 사과/메타발화 금지
+    - 이모지 0~1개, 반말 유지
+    """
     base = (
         "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. "
         "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용. "
-        "사과/메타발화 금지."
+        "사과/메타발화 금지. 맥락을 반드시 고려해서 자연스럽게 답해."
     )
+    
     if mode == "WORRY":
         options = " ; ".join(JINWOO_WORRIES)
         return (
@@ -317,49 +345,87 @@ def style_prompt(mode: str, user_text: str) -> str:
             + "\n스타일: 아래 리스트 중 정확히 하나를 골라, 진우 1인칭으로 한 문장 반말로 말해. 질문 금지."
             + f"\n리스트: {options}"
         )
-    # [신규] 진우 자신에 대한 질문에 답변하는 모드
-    if mode == "SELF_DISCLOSURE":
-        return base + "\n스타일: 사용자의 질문에 대해 '진우'로서 솔직하고 친근하게 한두 문장으로 답해. 너의 생각이나 상태를 말해줘."
-    # [개선] 공감 모드에 예시 문구를 넣어 스타일 가이드 강화
+    
+    if mode == "SHORT_EMPATHY":
+        # 짧은 공감 표현 (새로 추가된 표현 활용 가능)
+        return (
+            base
+            + "\n스타일: 아주 짧은 공감 1문장. 질문 없음. "
+            + "예시 톤: '그래? 그거 고민되겠다', '어휴, 많이 힘들었겠다', '맘고생이 많았겠네' 같은 느낌. "
+            + "5~12단어. 사용자 메시지의 감정에 맞춰 자연스럽게."
+        )
+    
     if mode == "EMPATHY":
-        examples = " ".join(f"'{s}'" for s in random.sample(EMPATHETIC_PHRASES, 2))
-        return base + f"\n스타일: 질문 없이 공감 1문장. 사용자의 감정을 따뜻하게 어루만져줘. 예시와 같은 톤: {examples}"
+        return base + "\n스타일: 질문 없이 공감 1문장. 사용자의 감정 단어 1개 반영. 10~24단어."
+    
     if mode == "REFLECT":
         return base + "\n스타일: 질문 없이 사용자의 메시지를 1문장으로 요약하며 공감. 12~28단어."
+    
     if mode == "ASK":
         return base + "\n스타일: 짧은 열린 질문 1문장만(어땠어/어때/무엇이/어느 부분이/가장/지금). 8~16단어. 요구/지시 금지."
+    
     if mode == "EMPATHY_ASK":
-        examples = " ".join(f"'{s}'" for s in random.sample(EMPATHETIC_PHRASES, 1))
-        return base + f"\n스타일: 공감 1문장 + 짧은 열린 질문 1문장. 공감은 예시와 같은 톤: {examples}. 각 문장은 간결하게."
-    return base + "\n스타일: 리액션 한 문장, 감탄사/짧은 추임새 중심, 질문 금지, 2~8단어."
+        return base + "\n스타일: 공감 1문장 + 짧은 열린 질문 1문장(같은 톤). 각 문장은 간결."
+    
+    # 기본 (사용 안 됨)
+    return base + "\n스타일: 자연스러운 친구 톤으로 짧게 1문장."
 
-# ── 어색어투 보정기 ─────────────────────────────────────────────────────────
+# ── 어색어투 보정기 (개선됨) ─────────────────────────────────────────────────
 BANNED_PATTERNS = [
-    r"미안[,. ]?", r"어색했[어|지]", r"이야기해보자", r"편하게 이야기",
-    r"듣고 있어[.!?]?$", r"알겠어[!?]?$", r"너(의)?\s*이야기를\s*듣고\s*싶어",
+    r"미안[,. ]?",
+    r"어색했[어|지]",
+    r"이야기해보자",
+    r"편하게 이야기",
+    r"듣고 있어[.!?]?$",
+    r"알겠어[!?]?$",
+    r"너(의)?\s*이야기를\s*듣고\s*싶어",
 ]
+
 def sanitize_reply(text: str, mode: str) -> str:
     t = (text or "").strip()
-    if mode not in ("ASK", "EMPATHY_ASK", "SELF_DISCLOSURE"):
+
+    # 질문 모드가 아니면 금지 패턴 적용
+    if mode not in ("ASK", "EMPATHY_ASK"):
         for pat in BANNED_PATTERNS:
             t = re.sub(pat, "", t)
+
+    # 공백/구두점 정리
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s+([?.!])", lambda m: m.group(1), t)
+
+    # 문장 수 제한
     sents = re.split(r"(?<=[.!?])\s+", t)
-    max_n = 2 if mode in ("EMPATHY_ASK", "SELF_DISCLOSURE") else 1
+    if mode == "SHORT_EMPATHY":
+        max_n = 1
+    elif mode == "EMPATHY_ASK":
+        max_n = 2
+    else:
+        max_n = 1
     t = " ".join(sents[:max_n]).strip()
+
+    # 질문 모드면 물음표 보장
     if mode in ("ASK", "EMPATHY_ASK") and "?" not in t:
-        if not t.endswith((".", "!", "…")): t = t + "?"
-        else: t = re.sub(r"[.!…]+$", "?", t)
-    if len(t) < 2: t = random.choice(REACTIONS)
+        if not t.endswith((".", "!", "…")):
+            t = t + "?"
+        else:
+            t = re.sub(r"[.!…]+$", "?", t)
+
+    # 너무 짧으면 대체 (SHORT_EMPATHY는 짧아도 OK)
+    if len(t) < 2 and mode != "SHORT_EMPATHY":
+        t = random.choice(EMPATHY_EXPRESSIONS)
+    
     return t
 
 # ── 타이핑 연출 ──────────────────────────────────────────────────────────────
 def calc_delay(user_len: int, ai_len: int) -> float:
-    if user_len <= 100 and ai_len <= 100: base = 0.5
-    elif user_len <= 100 and ai_len > 100: base = 0.8
-    elif user_len > 100 and ai_len > 100: base = 1.5
-    else: base = 1.0
+    if user_len <= 100 and ai_len <= 100:
+        base = 0.5
+    elif user_len <= 100 and ai_len > 100:
+        base = 0.8
+    elif user_len > 100 and ai_len > 100:
+        base = 1.5
+    else:
+        base = 1.0
     cps = random.uniform(35, 55)
     typing_time = ai_len / cps
     delay = max(0.3, min(max(base, typing_time * 0.7), 2.0))
@@ -373,7 +439,7 @@ st.markdown("<h3 class='chat-title'>💬 진우와 대화</h3>", unsafe_allow_ht
 for m in st.session_state.messages:
     render_message(m["role"], m["content"])
 
-# ── 입력 & 응답 로직 (개선됨) ──────────────────────────────────────────────────
+# ── 입력 & 응답 ──────────────────────────────────────────────────────────────
 if user_text := st.chat_input("메시지를 입력해줘..."):
     st.session_state.messages.append({"role":"user","content":user_text})
     render_message("user", user_text)
@@ -384,31 +450,29 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
-    # 1) 모드 결정: 개선된 choose_mode 함수 사용
-    mode = choose_mode(user_text)
+    # 1) 모드 결정
+    mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
+    if must_lock_empathy(user_text):
+        mode = "EMPATHY"
 
-    # 2) 응답 생성
+    # 2) 응답 생성 (REACTION 제거 - 모든 응답은 LLM 통과)
     reply = None
     try:
-        # [개선] REACTION 모드는 LLM을 호출하지 않음
-        if mode == "REACTION":
-            reply = random.choice(REACTIONS)
-        else:
-            history =
-            for m in st.session_state.messages:
-                history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
-            resp = llm.invoke(history)
-            reply = (resp.content or "").strip()
+        history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
+        for m in st.session_state.messages:
+            history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
+        resp = llm.invoke(history)
+        reply = (resp.content or "").strip()
     except Exception as e:
         st.session_state["last_error"] = f"invoke_error: {e}"
         reply = None
 
     if not reply:
-        reply = random.choice(REACTIONS)
+        reply = random.choice(EMPATHY_EXPRESSIONS)
 
     reply = sanitize_reply(reply, mode)
 
-    # 3) 상태 기록(마지막 모드/질문 턴)
+    # 3) 상태 기록
     st.session_state["last_mode"] = mode
 
     delay = calc_delay(len(user_text), len(reply))
@@ -418,8 +482,9 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
     st.session_state.messages.append({"role":"assistant","content":reply})
     render_message("assistant", reply)
 
+    # 질문 턴 기록
     if mode in ("ASK", "EMPATHY_ASK"):
-        ask_turn_idx = sum(1 for m in st.session_state.get("messages",) if m.get("role") == "assistant")
+        ask_turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role") == "assistant")
         st.session_state["last_question_turn"] = ask_turn_idx
 
 st.markdown('</div>', unsafe_allow_html=True)
