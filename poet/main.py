@@ -5,7 +5,6 @@ import pytz
 import streamlit as st
 from dotenv import load_dotenv
 
-# 한국 시간대
 KST = pytz.timezone('Asia/Seoul')
 
 st.set_page_config(page_title="진우 챗", page_icon="💬", layout="centered")
@@ -78,6 +77,9 @@ SYSTEM_PROMPT = """너의 이름은 '진우'. 나이는 유저와 동갑이고 �
 
 사용자: 고마워!
 진우: 별말씀을~
+
+사용자: 친구야?
+진우: 당연하지. 우리 친구잖아
 """
 
 st.markdown("""
@@ -122,13 +124,11 @@ def render_message(role: str, content: str):
 """, unsafe_allow_html=True)
 
 def get_current_time_info() -> str:
-    """LLM에 전달할 현재 시간 정보 (한국 시간)"""
     now = datetime.now(KST)
     weekday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()]
     return f"[시스템 정보] 현재 시각: {now.year}년 {now.month}월 {now.day}일 ({weekday}요일) {now.hour}시 {now.minute}분"
 
 def get_greeting() -> str:
-    """시간대별 첫 인사 (한국 시간)"""
     now = datetime.now(KST)
     hour = now.hour
     
@@ -148,7 +148,6 @@ def get_greeting() -> str:
         return "아직 안 잤어?"
 
 def is_very_short_positive(text: str) -> bool:
-    """1~3글자 짧은 긍정"""
     clean = text.strip().replace(" ", "").lower()
     return len(clean) <= 3 and clean in ["응", "ㅇㅇ", "웅", "ㅇ", "오키", "ok", "굿", "ㅋㅋ", "ㅎㅎ"]
 
@@ -156,12 +155,19 @@ def get_short_reply(text: str) -> str:
     """짧은 입력에 대한 간단한 응답"""
     clean = text.strip().lower()
     
+    # 물음표 있으면 LLM에게 맡김 (질문이므로)
+    if "?" in text:
+        return None
+    
+    # 1~3글자 긍정
     if is_very_short_positive(text):
         return random.choice(["응응", "웅", "그래", "ㅇㅇ"])
     
-    if "고마" in clean and len(clean) <= 6 and "?" not in text:
+    # 감사 (물음표 없음 보장됨)
+    if "고마" in clean and len(clean) <= 6:
         return random.choice(["별말씀을~", "당연하지", "그럼~"])
     
+    # 애정 표현 (물음표 없음 보장됨)
     if any(w in clean for w in ["베프", "친구", "짱", "사랑"]) and len(clean) <= 6:
         return random.choice(["나도야", "헤헤", "그럼~"])
     
@@ -188,12 +194,12 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
 
     reply = None
     
-    # 시간 질문 (한국 시간)
+    # 시간 질문
     if re.search(r"(몇\s*시|시간|지금)", user_text) and "?" in user_text:
         now = datetime.now(KST)
         reply = f"지금 {now.hour}시 {now.minute}분이야" if now.minute > 0 else f"지금 {now.hour}시야"
     
-    # 짧은 입력
+    # 짧은 입력 (물음표 있으면 None 반환)
     if not reply:
         reply = get_short_reply(user_text)
     
