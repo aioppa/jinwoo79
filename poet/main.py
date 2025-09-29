@@ -309,8 +309,84 @@ EMPATHY_EXPRESSIONS = [
     "그랬구나, 쉽지 않았겠어",
     "많이 속상했겠다",
 ]
+# ── 자연스러운 질문 상황 감지 (NEW) ────────────────────────────────────────
+def is_natural_question_moment(user_text: str) -> bool:
+    """
+    대화 흐름상 자연스럽게 질문할 수 있는 순간인지 판단
+    """
+    t = user_text.strip()
+    
+    # 1. 새로운 활동/이벤트 언급 (자세한 설명 없이)
+    NEW_TOPIC_PATTERNS = [
+        r"(회의|미팅|meeting).{0,15}(있었|했|참석|다녀)",
+        r"(프로젝트|업무|일).{0,15}(시작|맡|진행|끝)",
+        r"(친구|동료|팀장|상사|가족).{0,15}(만났|봤|얘기|통화)",
+        r"(영화|책|게임|운동).{0,15}(봤|읽|했|시작)",
+        r"(여행|외출|나가|다녀)",
+    ]
+    
+    for pat in NEW_TOPIC_PATTERNS:
+        if re.search(pat, t, flags=re.IGNORECASE) and len(t) < 40:
+            # 짧게 언급만 하고 자세한 설명이 없으면 질문 타이밍
+            return True
+    
+    # 2. 감정 표현 + 이유 없음
+    EMOTION_WITHOUT_REASON = [
+        r"^(기분|컨디션|상태).+(좋|나쁘|별로|그냥)",
+        r"^(좀|너무|진짜).+(좋|나쁘|짜증|피곤|힘들|행복|신나)",
+        r"(오늘|요즘).+(기분|느낌).+(좋|나쁘|이상|묘)",
+    ]
+    
+    for pat in EMOTION_WITHOUT_REASON:
+        if re.search(pat, t, flags=re.IGNORECASE) and len(t) < 30:
+            return True
+    
+    # 3. 미래 계획 언급
+    FUTURE_PLANS = [
+        r"(내일|다음주|이번주|곧).+(있어|할|가|만나)",
+        r"(준비|계획).+(하고|해야|중)",
+    ]
+    
+    for pat in FUTURE_PLANS:
+        if re.search(pat, t, flags=re.IGNORECASE):
+            return True
+    
+    return False
 
-# ── 모드 선택 ────────────────────────────────────────────────────────────────
+def should_avoid_question(user_text: str, recent_messages: list) -> bool:
+    """
+    질문을 피해야 하는 상황인지 판단
+    """
+    t = user_text.strip()
+    
+    # 1. 너무 짧은 응답 (긍정/부정)
+    if len(t) <= 5:
+        return True
+    
+    # 2. 사용자가 이미 긴 설명을 했음 (40자 이상)
+    if len(t) > 40:
+        return True
+    
+    # 3. 힘든 감정 표현 중 (공감 우선)
+    HARD_EMOTIONS = [
+        r"(힘들|피곤|지쳐|우울|불안|스트레스|번아웃)",
+        r"(죽|싫|짜증|화나|속상|슬프)",
+    ]
+    
+    for pat in HARD_EMOTIONS:
+        if re.search(pat, t, flags=re.IGNORECASE):
+            return True
+    
+    # 4. 최근 2턴 내에 질문했으면 또 하지 않음
+    if len(recent_messages) >= 2:
+        last_two = recent_messages[-2:]
+        for msg in last_two:
+            if msg.get("role") == "assistant" and "?" in msg.get("content", ""):
+                return True
+    
+    return False
+
+# ── 모드 선택 (완전 개선) ───────────────────────────────────────────────────
 def choose_mode(user_text: str) -> str:
     if is_short_positive_reaction(user_text):
         return "SIMPLE_ACK"
@@ -318,42 +394,57 @@ def choose_mode(user_text: str) -> str:
     if must_lock_empathy(user_text):
         return "EMPATHY"
 
-    short = len(user_text.strip()) < 25
-    has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
-    last = st.session_state.get("last_mode", "")
-
-    turn_idx = sum(1 for m in st.session_state.get("messages", []) if m.get("role") == "assistant")
-    last_q_turn = st.session_state.get("last_question_turn", -999)
-    gap_since_q = turn_idx - last_q_turn
-    FORCE_QUESTION_EVERY = 4
-
-    if gap_since_q >= FORCE_QUESTION_EVERY and not must_lock_empathy(user_text) and len(user_text.strip()) > 15:
-        return "ASK" if turn_idx > 2 else "EMPATHY_ASK"
-
-    weights = {
-        "SHORT_EMPATHY": 0.18,
-        "EMPATHY": 0.32,
-        "REFLECT": 0.20,
-        "ASK": 0.18,
-        "EMPATHY_ASK": 0.12
-    }
+    # 최근 메시지 가져오기
+    recent_messages = st.session_state.get("messages", [])
     
-    if short:
-        weights["SHORT_EMPATHY"] += 0.10
-        weights["EMPATHY"] += 0.05
-    if has_q:
-        weights["ASK"] += 0.12
-        weights["EMPATHY_ASK"] += 0.05
-        weights["EMPATHY"] -= 0.08
-    if last in ("ASK", "EMPATHY_ASK"):
-        weights["ASK"] -= 0.12
-        weights["EMPATHY_ASK"] -= 0.08
-        weights["EMPATHY"] += 0.10
-        weights["SHORT_EMPATHY"] += 0.05
-    if turn_idx <= 2:
-        weights["ASK"] *= 0.7
-        weights["EMPATHY_ASK"] *= 0.8
+    # 질문 피해야 하는 상황인지 먼저 체크
+    if should_avoid_question(user_text, recent_messages):
+        # 질문 모드 완전 차단
+        weights = {
+            "SHORT_EMPATHY": 0.25,
+            "EMPATHY": 0.45,
+            "REFLECT": 0.30,
+            "ASK": 0.0,
+            "EMPATHY_ASK": 0.0
+        }
+    else:
+        # 자연스러운 질문 타이밍인지 확인
+        is_natural_moment = is_natural_question_moment(user_text)
+        
+        short = len(user_text.strip()) < 25
+        has_q = "?" in user_text or re.search(r"(어떻게|뭐|왜|몇|어디|가능|될까|할까|알려줘)", user_text)
+        last = st.session_state.get("last_mode", "")
+        
+        # 기본 가중치
+        weights = {
+            "SHORT_EMPATHY": 0.20,
+            "EMPATHY": 0.35,
+            "REFLECT": 0.20,
+            "ASK": 0.15,
+            "EMPATHY_ASK": 0.10
+        }
+        
+        # 자연스러운 질문 타이밍이면 질문 가중치 대폭 증가
+        if is_natural_moment:
+            weights["ASK"] += 0.25
+            weights["EMPATHY_ASK"] += 0.15
+            weights["EMPATHY"] -= 0.15
+            weights["SHORT_EMPATHY"] -= 0.10
+        
+        if short:
+            weights["SHORT_EMPATHY"] += 0.10
+            weights["EMPATHY"] += 0.05
+        
+        if has_q:
+            weights["ASK"] += 0.12
+            weights["EMPATHY_ASK"] += 0.05
+        
+        if last in ("ASK", "EMPATHY_ASK"):
+            weights["ASK"] -= 0.20
+            weights["EMPATHY_ASK"] -= 0.15
+            weights["EMPATHY"] += 0.15
 
+    # 가중치 정규화 및 선택
     tot = sum(max(0.01, w) for w in weights.values())
     r = random.random() * tot
     c = 0.0
@@ -362,7 +453,7 @@ def choose_mode(user_text: str) -> str:
         if r <= c:
             return k
     return "EMPATHY"
-
+    
 # ── 스타일 지침 ──────────────────────────────────────────────────────────────
 def style_prompt(mode: str, user_text: str) -> str:
     base = (
