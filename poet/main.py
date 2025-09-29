@@ -25,7 +25,7 @@ if not API_KEY:
 
 os.environ["OPENAI_API_KEY"] = API_KEY
 
-# ── OpenAI 인증 점검(선택) ───────────────────────────────────────────────────
+# ── OpenAI 인증 점검 ─────────────────────────────────────────────────────────
 from openai import OpenAI
 client = OpenAI(api_key=API_KEY)
 
@@ -120,47 +120,46 @@ def render_message(role: str, content: str):
 
 # ── 시간대별 인사 ────────────────────────────────────────────────────────────
 def get_time_based_greeting() -> str:
-    """현재 시간에 맞춰 자연스러운 인사 반환"""
     now = datetime.now()
     hour = now.hour
     
-    if 4 <= hour < 7:  # 새벽
+    if 4 <= hour < 7:
         greetings = [
             "벌써 일어났어? 일찍 일어났네",
             "와, 일찍 일어났구나",
             "새벽부터 일어나서 뭐해?",
         ]
-    elif 7 <= hour < 11:  # 아침
+    elif 7 <= hour < 11:
         greetings = [
             "좋은 아침이야~ 잘 잤어?",
             "아침이다! 기분은 어때?",
             "좋은 아침~ 오늘 하루 어떻게 시작했어?",
         ]
-    elif 11 <= hour < 14:  # 점심
+    elif 11 <= hour < 14:
         greetings = [
             "점심은 먹었어?",
             "점심때네, 뭐 먹었어?",
             "점심 시간이야, 맛있는 거 먹었어?",
         ]
-    elif 14 <= hour < 18:  # 오후
+    elif 14 <= hour < 18:
         greetings = [
             "오후네~ 오늘 하루 어때?",
             "오후 시간이다, 좀 피곤해?",
             "오후에는 뭐 하고 있어?",
         ]
-    elif 18 <= hour < 21:  # 저녁
+    elif 18 <= hour < 21:
         greetings = [
             "저녁 먹었어?",
             "저녁 시간이네, 식사 했어?",
             "저녁은 뭐 먹었어?",
         ]
-    elif 21 <= hour < 24:  # 밤
+    elif 21 <= hour < 24:
         greetings = [
             "아직 안 잤어?",
             "늦은 시간이네, 오늘 하루 어땠어?",
             "밤에 뭐 하고 있어?",
         ]
-    else:  # 0-4시 (심야)
+    else:
         greetings = [
             "아직도 안 잤어? 괜찮아?",
             "늦은 시간인데 잠은 안 자?",
@@ -169,7 +168,7 @@ def get_time_based_greeting() -> str:
     
     return random.choice(greetings)
 
-# ── 랜덤 스타터 (시간대 반영) ────────────────────────────────────────────────
+# ── 랜덤 스타터 ──────────────────────────────────────────────────────────────
 STARTER_TEMPLATES = [
     "{nick} 안녕~ {suffix}",
     "하이루 {nick}, {suffix}",
@@ -200,7 +199,6 @@ SUFFIXES = [
 ]
 
 def generate_starter() -> str:
-    """시간대 기반 인사를 50% 확률로 섞어서 생성"""
     if random.random() < 0.5:
         return get_time_based_greeting()
     else:
@@ -212,7 +210,7 @@ def generate_starter() -> str:
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role":"assistant","content": generate_starter()}]
 
-# ── 고민 트리거/리스트 ───────────────────────────────────────────────────────
+# ── 고민 트리거 ──────────────────────────────────────────────────────────────
 JINWOO_WORRIES = [
     "개발자로서 급변하는 기술 트렌드에 뒤처질까 걱정돼.",
     "개발자로서 잦은 야근과 빡센 마감 압박이 버거울 때가 있어.",
@@ -248,7 +246,7 @@ def is_ask_about_jinwoo_worry(text: str) -> bool:
         return True
     return False
 
-# ── 짧은 긍정/리액션 감지 ────────────────────────────────────────────────────
+# ── 짧은 긍정 응답 감지 ─────────────────────────────────────────────────────
 SHORT_POSITIVE_PATTERNS = [
     r"^(응|ㅇㅇ|웅|ㅇ|오키|굿|good|ok|okay|알겠어|알았어)$",
     r"^(고마워|감사|땡큐|thanks|thx|ㄱㅅ)$",
@@ -257,7 +255,6 @@ SHORT_POSITIVE_PATTERNS = [
 ]
 
 def is_short_positive_reaction(text: str) -> bool:
-    """짧고 긍정적인 단답형 응답인지 확인"""
     t = (text or "").strip().lower()
     t = re.sub(r"[!.?~\s]+", "", t)
     
@@ -304,7 +301,7 @@ def must_lock_empathy(text: str) -> bool:
             return True
     return False
 
-# ── 공감 표현 리스트 ─────────────────────────────────────────────────────────
+# ── 공감 표현 ────────────────────────────────────────────────────────────────
 EMPATHY_EXPRESSIONS = [
     "그래? 그거 고민되겠다",
     "어휴, 많이 힘들었겠다",
@@ -315,7 +312,6 @@ EMPATHY_EXPRESSIONS = [
 
 # ── 모드 선택 ────────────────────────────────────────────────────────────────
 def choose_mode(user_text: str) -> str:
-    """개선된 모드 선택"""
     if is_short_positive_reaction(user_text):
         return "SIMPLE_ACK"
     
@@ -369,7 +365,6 @@ def choose_mode(user_text: str) -> str:
 
 # ── 스타일 지침 ──────────────────────────────────────────────────────────────
 def style_prompt(mode: str, user_text: str) -> str:
-    """개선된 스타일 지침"""
     base = (
         "이번 턴은 아래 '스타일' 지침을 최우선으로 따른다. "
         "이 지침은 기본 규칙보다 우선한다. 이모지는 0~1개만 허용. "
@@ -455,23 +450,18 @@ AWKWARD_QUESTION_PATTERNS = [
 ]
 
 def sanitize_reply(text: str, mode: str) -> str:
-    """개선된 보정기"""
     t = (text or "").strip()
 
-    # 질문 모드가 아니면 금지 패턴 적용
     if mode not in ("ASK", "EMPATHY_ASK"):
         for pat in BANNED_PATTERNS:
             t = re.sub(pat, "", t)
     
-    # 어색한 질문 패턴은 항상 제거
     for pat in AWKWARD_QUESTION_PATTERNS:
         t = re.sub(pat, "", t)
 
-    # 공백/구두점 정리
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s+([?.!])", lambda m: m.group(1), t)
 
-    # 문장 수 제한
     sents = re.split(r"(?<=[.!?])\s+", t)
     if mode == "SIMPLE_ACK":
         max_n = 1
@@ -483,7 +473,6 @@ def sanitize_reply(text: str, mode: str) -> str:
         max_n = 1
     t = " ".join(sents[:max_n]).strip()
 
-    # 질문 모드면 물음표 보장
     if mode in ("ASK", "EMPATHY_ASK") and len(t) > 3:
         if "?" not in t:
             if not t.endswith((".", "!", "…")):
@@ -491,7 +480,6 @@ def sanitize_reply(text: str, mode: str) -> str:
             else:
                 t = re.sub(r"[.!…]+$", "?", t)
 
-    # 너무 짧으면 대체
     if len(t) < 2:
         if mode == "SIMPLE_ACK":
             t = random.choice(THANKS_RESPONSES)
@@ -534,7 +522,7 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         unsafe_allow_html=True
     )
 
-    # 1) 특수 케이스 처리: 짧은 긍정 응답
+    # 짧은 긍정 응답 처리
     if is_short_positive_reaction(user_text):
         if re.search(r"(고마워|감사|땡큐|thanks|thx|ㄱㅅ)", user_text, flags=re.IGNORECASE):
             reply = random.choice(THANKS_RESPONSES)
@@ -543,16 +531,15 @@ if user_text := st.chat_input("메시지를 입력해줘..."):
         else:
             reply = random.choice(["응응", "웅", "ㅇㅇ", "그래", "오키"])
         mode = "SIMPLE_ACK"
-    
     else:
-        # 2) 일반 모드 선택
+        # 일반 모드 선택
         mode = "WORRY" if is_ask_about_jinwoo_worry(user_text) else choose_mode(user_text)
         if must_lock_empathy(user_text):
             mode = "EMPATHY"
 
-        # 3) 응답 생성 (LLM 호출)
-        reply = None 
-try:
+        # LLM 호출
+        reply = None
+        try:
             history = [SystemMessage(SYSTEM_PROMPT), SystemMessage(style_prompt(mode, user_text))]
             for m in st.session_state.messages:
                 history.append(HumanMessage(m["content"]) if m["role"]=="user" else AIMessage(m["content"]))
@@ -565,10 +552,9 @@ try:
         if not reply:
             reply = random.choice(EMPATHY_EXPRESSIONS)
 
-        # 4) 보정
         reply = sanitize_reply(reply, mode)
 
-    # 5) 상태 기록
+    # 상태 기록
     st.session_state["last_mode"] = mode
 
     delay = calc_delay(len(user_text), len(reply))
