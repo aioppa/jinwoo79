@@ -61,7 +61,7 @@ llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.7)
 # ══════════════════════════════════════════════════════════════════════════════
 @st.cache_resource # 앱 실행 시 한번만 실행되어 DB를 메모리에 저장해둡니다.
 def setup_rag_retriever():
-    csv_path = "jinwoo_chat.csv"
+    csv_path = "jinwoo_chat_data.csv"
     if not os.path.exists(csv_path):
         st.error(f"'{csv_path}' 파일을 찾을 수 없습니다. 폴더에 파일이 있는지 확인해주세요.")
         return None
