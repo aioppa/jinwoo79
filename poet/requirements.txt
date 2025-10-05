@@ -1,8 +1,7 @@
-
-openai
 streamlit
-langchain-openai
+langchain
+langchain-community
+chromadb
+openai
 python-dotenv
-langchain-community==0.0.38
-langchain==0.1.20
-faiss-cpu==1.7.4
+
