@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 # 📌 RAG 추가: 필요한 라이브러리들을 가져옵니다.
 import pandas as pd
-from langchain_community.vectorstores import FAISS
+from langchain.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
 from langchain_core.documents import Document
 
