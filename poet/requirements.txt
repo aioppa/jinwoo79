@@ -1,8 +1,0 @@
-
-streamlit
-langchain
-langchain-community
-langchain-openai
-chromadb
-openai
-python-dotenv
