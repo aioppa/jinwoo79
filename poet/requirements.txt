@@ -1,5 +1,8 @@
-langchain
+
 openai
 streamlit
 langchain-openai
 python-dotenv
+langchain-community==0.0.38
+langchain==0.1.20
+faiss-cpu==1.7.4
